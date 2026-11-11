@@ -3,6 +3,7 @@
 
 /** Claude Code moves longer additionalContext into a file, so it is cut here instead. */
 export const MAX_CONTEXT = 10000;
+export const TRUNCATED = '\n[truncated]';
 
 const text = (v) => typeof v === 'string' && v !== '';
 
@@ -21,18 +22,27 @@ export function merge(results) {
   return Object.keys(out).length ? out : null;
 }
 
-/** The stdout text for `result` on `hookEventName`: one JSON object, or '' for no decision. */
-export function render(hookEventName, result) {
+/** `context` cut to MAX_CONTEXT characters, the cut marked at its end. */
+function capped(context) {
+  return context.length <= MAX_CONTEXT ? context : context.slice(0, MAX_CONTEXT - TRUNCATED.length) + TRUNCATED;
+}
+
+/**
+ * The stdout text for `result` on `hookEventName`: one JSON object, or '' for no decision.
+ * A deny only exists on PreToolUse; elsewhere it is dropped and reported through `warn(code)`.
+ */
+export function render(hookEventName, result, warn = () => {}) {
   if (result === null || typeof result !== 'object' || Array.isArray(result)) return '';
   if (text(result.deny)) {
-    return JSON.stringify({
-      hookSpecificOutput: { hookEventName, permissionDecision: 'deny', permissionDecisionReason: result.deny },
-    });
+    if (hookEventName === 'PreToolUse') {
+      return JSON.stringify({
+        hookSpecificOutput: { hookEventName, permissionDecision: 'deny', permissionDecisionReason: result.deny },
+      });
+    }
+    warn('deny-outside-PreToolUse');
   }
   const out = {};
   if (text(result.systemMessage)) out.systemMessage = result.systemMessage;
-  if (text(result.context)) {
-    out.hookSpecificOutput = { hookEventName, additionalContext: result.context.slice(0, MAX_CONTEXT) };
-  }
+  if (text(result.context)) out.hookSpecificOutput = { hookEventName, additionalContext: capped(result.context) };
   return Object.keys(out).length ? JSON.stringify(out) : '';
 }

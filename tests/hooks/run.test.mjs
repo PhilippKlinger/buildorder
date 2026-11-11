@@ -24,18 +24,19 @@ const STUB_KIND = {
   'handoff-reminder': 'systemMessage',
 };
 const stubSource = (name, kind) =>
-  `export default function run(input, { root, ws, startPath }) {\n` +
-  `  return { ${kind}: JSON.stringify({ hook: '${name}', root, startPath, name: ws.name }) };\n}\n`;
+  `export default function run(input, { root, ws, startPath, startUnclear }) {\n` +
+  `  return { ${kind}: JSON.stringify({ hook: '${name}', root, startPath, startUnclear, name: ws.name }) };\n}\n`;
 
 /**
  * A copy of the plugin's run.mjs, output.mjs and lib/ with stub hook modules, so the entry point
- * is tested without the real guards. `overrides` maps a hook name to replacement module source.
- * Returns the path of the copied run.mjs.
+ * is tested without the real guards. `overrides` maps a hook name to replacement module source;
+ * `withoutOutput` leaves output.mjs out. Returns the path of the copied run.mjs.
  */
-function stubPlugin(overrides = {}) {
+function stubPlugin(overrides = {}, { withoutOutput = false } = {}) {
   const dir = join(tempDir('plugin'), 'buildorder');
   cpSync(join(PLUGIN, 'lib'), join(dir, 'lib'), { recursive: true });
-  for (const f of ['run.mjs', 'output.mjs']) cpSync(join(PLUGIN, 'hooks', f), join(dir, 'hooks', f));
+  const files = withoutOutput ? ['run.mjs'] : ['run.mjs', 'output.mjs'];
+  for (const f of files) cpSync(join(PLUGIN, 'hooks', f), join(dir, 'hooks', f));
   for (const [name, kind] of Object.entries(STUB_KIND)) {
     writeFileSync(join(dir, 'hooks', `${name}.mjs`), overrides[name] ?? stubSource(name, kind));
   }
@@ -176,48 +177,142 @@ test('secret starts at the folder the git command runs in', () => {
   const app = join(root, 'app');
   const outside = tempDir('outside git');
   const run = stubPlugin();
-  const start = (command, cwd = outside) => {
+  const report = (command, cwd = outside) => {
     const input = { cwd, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } };
     const res = runHook('secret', input, { run, cwd: outside });
-    return res.json ? reports(res.json)[0].startPath : null;
+    return res.json ? reports(res.json)[0] : null;
   };
-  same(start(`git -C "${app}" commit -m x`), app);
-  same(start(`git -C '${app}' commit -m x`), app);
-  same(start('git -C app commit -m x', root), app);
-  same(start(`cd "${app}" && git commit -m x`), app);
-  same(start(`Set-Location '${app}'; git commit -m x`), app);
-  same(start('cd app; git -C src commit -m x', root), join(app, 'src'));
-  same(start('git commit -m x', app), app);
-  // Unclear targets fall back to cwd instead of guessing.
-  same(start('cd $HOME && git commit -m x', app), app);
-  same(start('cd ~/x && git commit -m x', app), app);
-  same(start('cd $HOME && git -C app commit -m x', root), root);
-  same(start('cd app && git -C $DIR commit -m x', root), root);
-  assert.equal(start(`echo "${app}" && git commit -m x`), null);
-  for (const command of [undefined, 42]) assert.equal(start(command), null);
+  const clear = (command, cwd, expected) => {
+    const r = report(command, cwd);
+    assert.ok(r, `answer for ${command}`);
+    same(r.startPath, expected);
+    assert.equal(r.startUnclear, false, command);
+  };
+  // Unclear targets use cwd and say so, so the guard can refuse instead of checking the wrong repo.
+  const unclear = (command, cwd) => {
+    const r = report(command, cwd);
+    assert.ok(r, `answer for ${command}`);
+    same(r.startPath, cwd);
+    assert.equal(r.startUnclear, true, command);
+  };
+  clear(`git -C "${app}" commit -m x`, outside, app);
+  clear(`git -C '${app}' commit -m x`, outside, app);
+  clear('git -C app commit -m x', root, app);
+  clear('git -C app -C src commit -m x', root, join(app, 'src'));
+  clear('git -c user.name=x --no-pager -C app commit -m x', root, app);
+  clear(`cd "${app}" && git commit -m x`, outside, app);
+  clear(`Set-Location '${app}'; git commit -m x`, outside, app);
+  clear("Set-Location -Path 'app'; git commit -m x", root, app);
+  clear('pushd app && git commit -m x', root, app);
+  clear('cd app; git -C src commit -m x', root, join(app, 'src'));
+  clear('git commit -m x', app, app);
+  clear('git commit -m "fix the git commit hook"', app, app);
+  clear('git log --grep commit && git -C app commit -m x', root, app);
+  unclear('cd $REPO && git commit -m x', app);
+  unclear('cd ~/x && git commit -m x', app);
+  unclear('cd $HOME && git -C app commit -m x', root);
+  unclear('cd app && git -C $DIR commit -m x', root);
+  unclear('cd app && cd src && git commit -m x', root);
+  unclear('echo x && cd app && git commit -m x', root);
+  unclear('Set-Location -Path $env:REPO; git commit -m x', root);
+  unclear('git --git-dir=app/.git commit -m x', root);
+  unclear('git --work-tree app -C app commit -m x', root);
+  unclear('git -C app commit -m x && git commit -m y', root);
+  assert.equal(report(`echo "${app}" && git commit -m x`), null);
+  for (const command of [undefined, 42]) assert.equal(report(command), null);
 });
 
-test('a failing hook module exits 0 without output or stack', () => {
+test('secret reads Git Bash drive paths on Windows', { skip: process.platform !== 'win32' }, () => {
   const root = makeWorkspace();
-  const boom = 'export default function run() { throw new Error("secret value in message"); }\n';
-  const run = stubPlugin({
-    'boundary-guard': boom,
-    'compact-guard': 'export default function run() { return null; }\n',
-    'handoff-reminder': 'export default async function run() { return { unknown: 1 }; }\n',
-    'secret-guard': 'syntax error here (\n',
-  });
-  for (const entry of ['boundary', 'secret']) {
-    const res = runHook(entry, inputFor(entry, root), { run });
-    silent(res);
-    assert.ok(res.stderr.trim().split('\n').length <= 1, `one line at most: ${res.stderr}`);
-    assert.doesNotMatch(res.stderr, /\n\s+at |secret value/);
+  const app = join(root, 'app');
+  const outside = tempDir('outside bash');
+  const run = stubPlugin();
+  const bash = (p) => `/${p[0].toLowerCase()}/${p.slice(3).replace(/\\/g, '/')}`;
+  const start = (command) => {
+    const input = { cwd: outside, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } };
+    const r = reports(runHook('secret', input, { run, cwd: outside }).json)[0];
+    assert.equal(r.startUnclear, false, command);
+    return r.startPath;
+  };
+  same(start(`cd "${bash(app)}" && git commit -m x`), app);
+  same(start(`git -C "${bash(app)}" commit -m x`), app);
+  same(start(`cd /${app[0].toLowerCase()} && git -C "${app.slice(3)}" commit -m x`), app);
+});
+
+// Ways a hook module can fail; each message carries a marker that must never reach the output.
+const BROKEN = {
+  'sync throw': 'export default function run() { throw new Error("secret value"); }\n',
+  'syntax error': 'export default function run( { secret value\n',
+  'rejected promise': 'export default async function run() { throw new Error("secret value"); }\n',
+  'late throw': 'export default function run() {\n' +
+    '  return new Promise(() => { setTimeout(() => { throw new Error("secret value"); }, 0); });\n}\n',
+  'never settles': 'export default function run() { return new Promise(() => {}); }\n',
+  'process.exit': 'export default function run() { process.exit(3); }\n',
+  'invalid result': 'export default function run() { return { unknown: "secret value" }; }\n',
+  'empty deny': 'export default function run() { return { deny: "" }; }\n',
+  'string result': 'export default function run() { return "secret value"; }\n',
+};
+const GUARDS = [['boundary', 'boundary-guard'], ['secret', 'secret-guard']];
+const guardFailed = (entry) => `buildorder: the ${entry} check could not run, so this action was blocked. ` +
+  'Try again; if it keeps failing, report the hook error.';
+const quietStderr = (res, label) => {
+  assert.ok(res.stderr === '' || /^[^\n]+\n$/.test(res.stderr), `${label}: one stderr line at most: ${res.stderr}`);
+  assert.doesNotMatch(res.stderr, /\bat |secret value/, label);
+};
+
+test('a guard that cannot run denies with a generic reason', () => {
+  const root = makeWorkspace();
+  for (const [entry, hook] of GUARDS) {
+    for (const [kind, source] of Object.entries(BROKEN)) {
+      const res = runHook(entry, inputFor(entry, root), { run: stubPlugin({ [hook]: source }) });
+      const label = `${entry} / ${kind}`;
+      assert.deepEqual(res.json, {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: guardFailed(entry),
+        },
+      }, label);
+      assert.match(res.stderr, new RegExp(`^buildorder: ${hook} skipped \\(`), label);
+      quietStderr(res, label);
+    }
+    // Without output.mjs the fixed deny still comes out.
+    const bare = runHook(entry, inputFor(entry, root), { run: stubPlugin({}, { withoutOutput: true }) });
+    assert.equal(bare.json.hookSpecificOutput.permissionDecisionReason, guardFailed(entry));
+    quietStderr(bare, `${entry} / no output.mjs`);
+    // A guard that allows (null) stays silent.
+    silent(runHook(entry, inputFor(entry, root), { run: stubPlugin({ [hook]: 'export default () => null;\n' }) }));
   }
-  silent(runHook('compact', inputFor('compact', root), { run }));
-  silent(runHook('stop', inputFor('stop', root), { run }));
+});
+
+test('a broken guard outside a workspace stays silent', () => {
+  const outside = tempDir('outside broken');
+  for (const [entry, hook] of GUARDS) {
+    const res = runHook(entry, inputFor(entry, outside), { run: stubPlugin({ [hook]: BROKEN['sync throw'] }), cwd: outside });
+    silent(res);
+    assert.equal(res.stderr, '');
+  }
+});
+
+test('a failing advisory hook exits 0 without output or stack', () => {
+  const root = makeWorkspace();
+  const advisory = { compact: 'compact-guard', stop: 'handoff-reminder' };
+  for (const [entry, hook] of Object.entries(advisory)) {
+    for (const [kind, source] of Object.entries(BROKEN)) {
+      const res = runHook(entry, inputFor(entry, root), { run: stubPlugin({ [hook]: source }) });
+      silent(res);
+      quietStderr(res, `${entry} / ${kind}`);
+    }
+    silent(runHook(entry, inputFor(entry, root), { run: stubPlugin({}, { withoutOutput: true }) }));
+  }
   // One broken prompt hook does not silence the other.
-  const prompt = runHook('prompt', inputFor('prompt', root), { run: stubPlugin({ 'effort-hint': boom }) });
+  const prompt = runHook('prompt', inputFor('prompt', root), { run: stubPlugin({ 'effort-hint': BROKEN['sync throw'] }) });
   assert.deepEqual(reports(prompt.json).map((r) => r.hook), ['context-inject']);
   assert.equal(prompt.stderr, 'buildorder: effort-hint skipped (Error)\n');
+  // A deny from an advisory hook is dropped with a note.
+  const deny = runHook('compact', inputFor('compact', root), {
+    run: stubPlugin({ 'compact-guard': 'export default () => ({ deny: "no" });\n' }),
+  });
+  silent(deny);
+  assert.equal(deny.stderr, 'buildorder: compact skipped (deny-outside-PreToolUse)\n');
 });
 
 test('hooks.json registers exactly the six entries', () => {
@@ -251,9 +346,19 @@ test('output renders each result kind and caps context', () => {
   assert.equal(MAX_CONTEXT, 10000);
   const long = JSON.parse(render('UserPromptSubmit', { context: 'x'.repeat(MAX_CONTEXT + 50) }));
   assert.equal(long.hookSpecificOutput.additionalContext.length, MAX_CONTEXT);
+  assert.ok(long.hookSpecificOutput.additionalContext.endsWith('x\n[truncated]'));
+  const exact = JSON.parse(render('UserPromptSubmit', { context: 'y'.repeat(MAX_CONTEXT) }));
+  assert.equal(exact.hookSpecificOutput.additionalContext, 'y'.repeat(MAX_CONTEXT));
   for (const bad of [{}, { deny: '' }, { context: 42 }, { other: 'x' }, 'text', []]) {
     assert.equal(render('PreToolUse', bad), '', JSON.stringify(bad));
   }
+  // A deny exists only on PreToolUse; elsewhere it is dropped and reported.
+  const warned = [];
+  assert.equal(render('UserPromptSubmit', { deny: 'no' }, (code) => warned.push(code)), '');
+  assert.deepEqual(JSON.parse(render('Stop', { deny: 'no', systemMessage: 'm' }, (code) => warned.push(code))), {
+    systemMessage: 'm',
+  });
+  assert.deepEqual(warned, ['deny-outside-PreToolUse', 'deny-outside-PreToolUse']);
 });
 
 test('merge keeps the first deny and joins texts', () => {
