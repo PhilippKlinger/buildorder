@@ -9,7 +9,6 @@ import { join } from 'node:path';
 import { gitResult } from '../lib/git.mjs';
 import { isSecretFile, scanLine } from '../lib/secrets.mjs';
 
-const COMMIT_CALL = /\bgit\b[^\n;|&]*\bcommit\b/;
 const MAX_FINDINGS = 10;
 // Stable output: no quoting of non-ASCII names, no lock files, plain prefixes, no external diff drivers.
 const BASE = [
@@ -98,8 +97,9 @@ function untrackedFindings(startPath, seenFiles) {
 /** @returns {{ deny: string } | null} */
 export default function secretGuard(input, { startPath, startUnclear, startHint, addBeforeCommit }) {
   if (startUnclear) return { deny: startHint };
-  const command = input?.tool_input?.command;
-  if (typeof command !== 'string' || !COMMIT_CALL.test(command)) return null;
+  // No second look at the command: run.mjs hands over a clear start folder only for a git commit
+  // (a command it cannot read is unclear and denied above), and a regex here would miss folders
+  // with & ; or | in their name.
 
   // A commit may take working-tree content (-a, pathspecs, --only, --include), so the unstaged
   // changes of tracked files are checked on every commit, besides the index.

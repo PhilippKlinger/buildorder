@@ -93,6 +93,18 @@ test('git -C with a path containing spaces', () => {
   assertDeny(commit(`git -C "${dir}" commit -m x`, { cwd: root }));
 });
 
+test('git -C with a path containing & or ; still scans, other git commands still pass', () => {
+  for (const name of ['R&D', 'a;b']) {
+    const root = makeWorkspace({ repos: [{ path: name }] });
+    const dir = join(root, name);
+    gitInit(dir);
+    write(dir, { 'a.js': awsLine() });
+    gitIn(dir, 'add', '-A');
+    assert.match(assertDeny(commit(`git -C "${dir}" commit -m x`, { cwd: root })), /a\.js:1 AWS Access Key/, name);
+    assertSilent(commit(`git -C "${dir}" status`, { cwd: root }));
+  }
+});
+
 test('a leading cd decides the repo', () => {
   const { root } = staged({ 'a.js': awsLine() });
   assertDeny(commit('cd app && git commit -m x', { cwd: root }));
