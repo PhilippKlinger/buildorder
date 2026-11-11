@@ -1,6 +1,6 @@
 // Runs the buildorder CLI as a child process, the way the skills call it.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { repoRoot } from './repo.mjs';
@@ -8,11 +8,29 @@ import { repoRoot } from './repo.mjs';
 export const script = join(repoRoot, 'plugins', 'buildorder', 'scripts', 'buildorder.mjs');
 
 // Commits never depend on the machine's global git config.
-const COMMIT_CONFIG = ['-c', 'user.name=test', '-c', 'user.email=test@localhost', '-c', 'commit.gpgsign=false'];
+const COMMIT_CONFIG = [
+  '-c', 'user.name=test', '-c', `user.email=${['test', 'localhost'].join('@')}`, '-c', 'commit.gpgsign=false',
+];
+// Variables that would send fixture git calls into another repo (e.g. when tests run inside a git hook).
+const REDIRECTING = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'];
+
+const temps = [];
+
+/** A fresh temp folder whose name holds `label` and spaces; removed by `cleanup()`. */
+export function tempDir(label) {
+  const dir = mkdtempSync(join(tmpdir(), `bo ${label} `));
+  temps.push(dir);
+  return dir;
+}
+
+/** Removes every temp folder created through this helper. */
+export function cleanup() {
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+}
 
 /** A fresh, existing folder named "target dir" inside a temp dir whose name holds `label` and spaces. */
 export function tmp(label) {
-  const dir = join(mkdtempSync(join(tmpdir(), `bo ${label} `)), 'target dir');
+  const dir = join(tempDir(label), 'target dir');
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -26,9 +44,19 @@ export function write(dir, files) {
   }
 }
 
-/** Runs git in `cwd` and returns its trimmed output; throws when git fails. */
+function gitEnv() {
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!REDIRECTING.includes(k.toUpperCase())) env[k] = v;
+  }
+  return env;
+}
+
+/** Runs git in `cwd` without hooks and returns its trimmed output; throws when git fails. */
 export function gitIn(cwd, ...args) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  return execFileSync('git', ['-c', 'core.hooksPath=', ...args], {
+    cwd, env: gitEnv(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 }
 
 /** `git init` on branch main (independent of init.defaultBranch). */
@@ -61,13 +89,13 @@ export function codeRepo(label, files, { dir = tmp(label) } = {}) {
 
 /** An empty home folder; detect reads personal skills from `<home>/.claude/skills`. */
 export function fakeHome() {
-  return mkdtempSync(join(tmpdir(), 'bo home '));
+  return tempDir('home');
 }
 
 /**
- * Runs `buildorder.mjs ...args`. A trailing options object `{ home }` sets the home folder
- * (HOME and USERPROFILE, which `os.homedir()` reads); without it an empty temp home is used,
- * so the real home never leaks into a test.
+ * Runs `buildorder.mjs ...args`. A trailing options object sets `home` (HOME and USERPROFILE,
+ * which `os.homedir()` reads) and `cwd`; without `home` an empty temp home is used, so the
+ * real home never leaks into a test.
  * @returns {{ status: number, stdout: string, stderr: string, json: any }}
  */
 export function cli(...args) {
@@ -78,7 +106,9 @@ export function cli(...args) {
   let stdout;
   let stderr = '';
   try {
-    stdout = execFileSync(process.execPath, [script, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    stdout = execFileSync(process.execPath, [script, ...args], {
+      cwd: opts.cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
   } catch (err) {
     status = err.status ?? 1;
     stdout = err.stdout ?? '';

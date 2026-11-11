@@ -1,9 +1,11 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { mkdirSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { repoRoot } from '../helpers/repo.mjs';
-import { cli, codeRepo, commitAll, fakeHome, gitIn, gitInit, tmp, write } from '../helpers/cli.mjs';
+import { cleanup, cli, codeRepo, commitAll, fakeHome, gitIn, gitInit, tempDir, tmp, write } from '../helpers/cli.mjs';
+
+after(cleanup);
 
 const VERSION = JSON.parse(readFileSync(join(repoRoot, 'plugins', 'buildorder', '.claude-plugin', 'plugin.json'), 'utf8')).version;
 
@@ -179,13 +181,79 @@ test('docs-only git repo is not code', () => {
   assert.equal(d.suggestion, 'new');
   assert.equal(d.workspaceProposal, null);
 
-  // A nested docs-only repo is no code repo either and is not listed.
+  // A nested docs-only repo is listed, but it does not count as a code repo for the suggestion.
   const parent = tmp('docs nested');
   codeRepo(null, { 'README.md': '# docs\n', 'guide.txt': '' }, { dir: join(parent, 'docs') });
   codeRepo(null, undefined, { dir: join(parent, 'app') });
   const p = detect(parent);
-  assert.deepEqual(p.repos.map((r) => r.path), ['app']);
-  assert.equal(p.suggestion, 'existing');
+  assert.deepEqual(p.repos.map((r) => r.path), ['app', 'docs']);
+  assert.deepEqual(byPath(p).docs.stacks, []);
+  assert.equal(p.suggestion, 'existing', 'one code repo, not multi-repo');
+});
+
+test('loose code files without git suggest existing', () => {
+  const dir = tmp('loose');
+  write(dir, { 'index.html': '<!doctype html>\n', 'css/style.css': '' });
+  const d = detect(dir);
+  assert.equal(d.rootIsRepo, false);
+  assert.deepEqual(d.repos, []);
+  assert.equal(d.suggestion, 'existing');
+
+  // Documents without git stay new.
+  const docs = tmp('loose docs');
+  write(docs, { 'plan.pdf': '%PDF', 'README.md': '# plan\n' });
+  assert.equal(detect(docs).suggestion, 'new');
+});
+
+test('agent tooling in a root repo does not make it a code repo', () => {
+  const dir = tmp('hooks only');
+  gitInit(dir);
+  write(dir, { '.claude/hooks/x.mjs': 'export {};\n', 'README.md': '' });
+  const d = detect(dir);
+  assert.equal(d.workspaceProposal, null);
+  assert.equal(d.suggestion, 'blocked');
+  assert.equal(d.blockedReason, 'agent-setup');
+});
+
+test('remote credentials never reach the output', () => {
+  const secret = ['tok', 'en', String(4242)].join('-');
+  const dir = codeRepo('creds');
+  gitIn(dir, 'remote', 'add', 'origin', `https://someone:${secret}@example.com/team/app.git`);
+  const r = cli('detect', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(!r.stdout.includes(secret), 'token is masked');
+  assert.equal(r.json.workspaceProposal.remote, 'https://example.com/team/app.git');
+  assert.equal(r.json.workspaceProposal.repoPath, 'app');
+
+  const parent = tmp('creds nested');
+  const app = codeRepo(null, undefined, { dir: join(parent, 'app') });
+  gitIn(app, 'remote', 'add', 'origin', `https://${secret}@example.com/app.git`);
+  const api = codeRepo(null, { 'go.mod': 'module api\n' }, { dir: join(parent, 'api') });
+  const scp = ['git', 'example.com:team/api.git'].join('@'); // built at runtime: reads like an address
+  gitIn(api, 'remote', 'add', 'origin', scp);
+  const repos = byPath(detect(parent));
+  assert.equal(repos.app.remote, 'https://example.com/app.git');
+  assert.equal(repos.api.remote, scp, 'scp-style user is kept');
+});
+
+test('a folder name outside NAME_RE gets a safe nest name', () => {
+  const name = 'caf' + String.fromCharCode(0xe9) + ' (old)';
+  const dir = codeRepo(null, undefined, { dir: join(tempDir('name'), name) });
+  const p = detect(dir).workspaceProposal;
+  assert.equal(p.dir, join(dirname(dir), `${name}-workspace`));
+  assert.equal(p.repoPath, 'cafe -old');
+  assert.deepEqual(p.inPlace, { dir, repoPath: 'cafe -old', blockers: [] });
+});
+
+test('relative paths and forward slashes give the same dir', () => {
+  const dir = tmp('paths');
+  assert.equal(detect(dir.replaceAll('\\', '/')).dir, dir);
+  assert.equal(detect(`${dir}/`).dir, dir);
+  // process.cwd() is the real path (macOS resolves /var to /private/var), so compare real paths.
+  const rel = cli('detect', basename(dir), { cwd: dirname(dir) });
+  assert.equal(rel.status, 0, rel.stderr);
+  assert.equal(realpathSync(rel.json.dir), realpathSync(dir));
+  assert.equal(realpathSync(cli('detect', { cwd: dir }).json.dir), realpathSync(dir), 'dir defaults to .');
 });
 
 test('branch, dirty and ahead per repo', () => {
@@ -202,7 +270,20 @@ test('branch, dirty and ahead per repo', () => {
   const api = codeRepo(null, { 'go.mod': 'module api\n' }, { dir: join(dir, 'api') });
   gitIn(api, 'checkout', '-q', '-b', 'feature/x');
 
+  const cli2 = codeRepo(null, { 'main.py': 'print(1)\n' }, { dir: join(dir, 'tool') });
+  gitIn(cli2, 'checkout', '-q', '--detach');
+
+  // No commit yet: an unborn branch, one untracked file.
+  const fresh = gitInit(join(dir, 'fresh'));
+  write(fresh, { 'go.mod': 'module fresh\n' });
+
   const repos = byPath(detect(dir));
+  assert.equal(repos.tool.branch, '', 'detached HEAD');
+  assert.equal(repos.tool.ahead, null);
+  assert.equal(repos.fresh.branch, 'main');
+  assert.equal(repos.fresh.dirty, 1);
+  assert.equal(repos.fresh.ahead, null);
+  assert.deepEqual(repos.fresh.stacks, ['go']);
   assert.equal(repos.app.branch, 'main');
   assert.equal(repos.app.dirty, 2, 'one modified, one untracked');
   assert.equal(repos.app.ahead, 1);
@@ -211,6 +292,24 @@ test('branch, dirty and ahead per repo', () => {
   assert.equal(repos.api.dirty, 0);
   assert.equal(repos.api.ahead, null, 'no upstream configured');
   assert.equal(repos.api.remote, null);
+});
+
+test('detect leaves the git index untouched', () => {
+  const dir = tmp('readonly');
+  const app = codeRepo(null, undefined, { dir: join(dir, 'app') });
+  const root = codeRepo('readonly root');
+  for (const repo of [app, root]) {
+    // Same content, new mtime: a plain `git status` would refresh and rewrite the index.
+    const file = join(repo, 'src', 'main.ts');
+    writeFileSync(file, readFileSync(file));
+    const later = new Date(Date.now() + 5000);
+    utimesSync(file, later, later);
+  }
+  const index = (repo) => readFileSync(join(repo, '.git', 'index'));
+  const before = [index(app), index(root)];
+  detect(dir);
+  detect(root);
+  assert.deepEqual([index(app), index(root)], before);
 });
 
 test('personal and project skills are listed with descriptions', () => {
@@ -263,4 +362,9 @@ test('unknown command and missing folder fail with a short message', () => {
   assert.equal(cli('detect', file).status, 1);
   mkdirSync(join(dirname(file), 'ok'));
   assert.equal(cli('detect', join(dirname(file), 'ok')).status, 0);
+
+  const extra = cli('detect', join(dirname(file), 'ok'), 'b');
+  assert.equal(extra.status, 1);
+  assert.equal(extra.stderr, "buildorder: unexpected argument 'b'\n");
+  assert.equal(extra.stdout, '');
 });

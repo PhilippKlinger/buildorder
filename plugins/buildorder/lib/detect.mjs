@@ -33,17 +33,22 @@ const TEST_DEPTH = 4;
 
 const BUILDORDER_VERSION = readJson(join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'))?.version ?? null;
 
+const under = (f, folders) => folders.some((p) => f.startsWith(`${p}/`));
+
 /**
- * A git repo is a code repo when its own files (nested repos left out) show a stack, supported
- * or not, or, if it holds no nested repos, when it has source files (CODE_EXT, three levels deep,
- * agent folders left out). Documents, notes and markdown alone never make a code repo.
+ * What a folder's own files (nested repos and agent folders left out) show: its stacks and
+ * whether it has source files (CODE_EXT, three levels deep).
+ *
+ * A git repo is a code repo when it has a stack, supported or not, or, if it holds no nested
+ * repos, source files. A folder that holds repos and some loose scripts is a parent of repos,
+ * not a repo of its own. Documents, notes and markdown alone never make code.
  */
-function isCodeRepo(dir, nested = []) {
-  const { supported, unsupported } = detectStacks(dir, { ignore: nested });
-  if (supported.length || unsupported.length) return true;
-  // A folder that holds repos and some loose scripts is a parent of repos, not a repo of its own.
-  if (nested.length) return false;
-  return walk(dir, CODE_DEPTH, CODE_SKIP).some((f) => CODE_EXT.has(extname(f).toLowerCase()));
+function ownCode(dir, nested = []) {
+  const stacks = detectStacks(dir, { ignore: nested });
+  const hasStack = stacks.supported.length > 0 || stacks.unsupported.length > 0;
+  const hasFiles = walk(dir, CODE_DEPTH, CODE_SKIP)
+    .some((f) => !under(f, nested) && CODE_EXT.has(extname(f).toLowerCase()));
+  return { stacks, hasStack, hasFiles, isCodeRepo: hasStack || (hasFiles && nested.length === 0) };
 }
 
 /** Git repos below `root` (`/`-separated relative paths); the search does not enter a repo it found. */
@@ -74,7 +79,8 @@ function findRepos(root) {
  * so trimming the output cannot shift a column.
  */
 function gitStatus(cwd, { ignored = false } = {}) {
-  const args = ['status', '--porcelain=v2', '-z', ...(ignored ? ['--ignored'] : [])];
+  // Without optional locks, status does not refresh and rewrite the index: detect stays read-only.
+  const args = ['--no-optional-locks', 'status', '--porcelain=v2', '-z', ...(ignored ? ['--ignored'] : [])];
   const r = gitResult(cwd, args);
   const out = { changed: 0, untracked: [], ignored: [] };
   if (!r.ok) return out;
@@ -97,7 +103,19 @@ function aheadOf(cwd) {
   return Number(git(cwd, ['rev-list', '--count', '@{u}..HEAD'])) || 0;
 }
 
-const remoteOf = (cwd) => git(cwd, ['remote', 'get-url', 'origin']) || null;
+/**
+ * A remote URL without credentials: the userinfo of a scheme URL (`https://user:token@host/x`)
+ * is dropped, because detect output is shown and logged. The user of an scp-style remote
+ * (`git@host:x.git`) is a login name, not a secret, and stays.
+ */
+export function maskRemote(url) {
+  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/]*@/i, '$1');
+}
+
+const remoteOf = (cwd) => {
+  const url = git(cwd, ['remote', 'get-url', 'origin']);
+  return url ? maskRemote(url) : null;
+};
 
 function workflowsOf(dir) {
   try {
@@ -125,9 +143,7 @@ function dockerOf(dir) {
   };
 }
 
-function repoInfo(root, path) {
-  const dir = join(root, ...path.split('/'));
-  const { supported, unsupported } = detectStacks(dir);
+function repoInfo(dir, path, { supported, unsupported }) {
   const status = gitStatus(dir);
   return {
     path,
@@ -154,11 +170,15 @@ function readWorkspace(root) {
   return { schemaVersion: 1, initPhase: ws.initPhase ?? null, profile: ws.profile ?? null };
 }
 
-/** Default subfolder name for nesting: the repo name; on a clash `-repo`, then `-repo-2`, ... */
+/**
+ * Default subfolder name for nesting: the repo name; on a clash `-repo`, then `-repo-2`, ...
+ * The base is shortened so the name stays within NAME_RE's 63 characters.
+ */
 export function nestName(entries, base) {
   const taken = new Set(entries.map((e) => e.toLowerCase()));
   for (let i = 1; ; i++) {
-    const name = i === 1 ? base : i === 2 ? `${base}-repo` : `${base}-repo-${i - 1}`;
+    const suffix = i === 1 ? '' : i === 2 ? '-repo' : `-repo-${i - 1}`;
+    const name = base.slice(0, 63 - suffix.length) + suffix;
     if (!taken.has(name.toLowerCase())) return name;
   }
 }
@@ -188,11 +208,25 @@ export function nestBlockers(root) {
   return blockers;
 }
 
+const validName = (name) => NAME_RE.test(name) && !/^\.+$/.test(name);
+
+/**
+ * `name` when it satisfies NAME_RE, else an ASCII version of it (accents dropped, other
+ * characters replaced by `-`), else `repo`. A proposal is only a default (nest takes another
+ * name), so an unusual folder name gets a usable default instead of a blocker.
+ */
+export function safeName(name) {
+  if (validName(name)) return name;
+  const ascii = name.normalize('NFKD').replace(/\p{M}/gu, '').replace(/[^\w .-]+/g, '-')
+    .replace(/^[ .-]+|[ .-]+$/g, '').slice(0, 63).replace(/[ .-]+$/, '');
+  return validName(ascii) ? ascii : 'repo';
+}
+
 /** The repo's own name from origin (e.g. `git@host:me/app.git` -> `app`), else the folder name. */
 function repoNameOf(root, remote) {
   // A local remote such as `/srv/app/.git` names the folder before `.git`.
   const fromRemote = remote?.replace(/[/\\]\.git[/\\]?$/, '').match(/([^/:\\]+?)(?:\.git)?\/?$/)?.[1];
-  return fromRemote && NAME_RE.test(fromRemote) && !/^\.+$/.test(fromRemote) ? fromRemote : basename(root);
+  return fromRemote && validName(fromRemote) ? fromRemote : safeName(basename(root));
 }
 
 /**
@@ -280,9 +314,14 @@ export function detect(dir, { home = homedir() } = {}) {
   const rootIsRepo = existsSync(join(root, '.git'));
   const workspace = readWorkspace(root);
   const existingSetup = AGENT_SETUP.filter((f) => existsSync(join(root, f)));
-  const nested = findRepos(root);
-  const codeRepos = nested.filter((p) => isCodeRepo(join(root, ...p.split('/'))));
-  const rootIsCode = rootIsRepo && isCodeRepo(root, nested);
+  // Every nested git repo is listed; only code repos count for the suggestion.
+  const nested = findRepos(root).map((path) => {
+    const abs = join(root, ...path.split('/'));
+    return { path, abs, code: ownCode(abs) };
+  });
+  const codeRepoCount = nested.filter((r) => r.code.isCodeRepo).length;
+  const own = ownCode(root, nested.map((r) => r.path));
+  const rootIsCode = rootIsRepo && own.isCodeRepo;
 
   let suggestion;
   let blockedReason = null;
@@ -291,8 +330,9 @@ export function detect(dir, { home = homedir() } = {}) {
   // A code repo gets a sibling or nested workspace, even with an old CLAUDE.md, which then stays in the repo.
   else if (rootIsCode) suggestion = 'repo-root';
   else if (existingSetup.length) { suggestion = 'blocked'; blockedReason = 'agent-setup'; }
-  else if (codeRepos.length > 1) suggestion = 'multi-repo';
-  else if (codeRepos.length === 1) suggestion = 'existing';
+  else if (codeRepoCount > 1) suggestion = 'multi-repo';
+  // Loose code of the folder's own (no git, or a parent of repos with scripts) is existing code too.
+  else if (codeRepoCount === 1 || own.hasStack || own.hasFiles) suggestion = 'existing';
   else suggestion = 'new';
 
   return {
@@ -303,7 +343,8 @@ export function detect(dir, { home = homedir() } = {}) {
     existingSetup,
     blockedReason,
     workspace,
-    repos: codeRepos.map((p) => repoInfo(root, p)),
+    // Also listed when blocked: the output stays true to the folder, and the cost is a few git calls per repo.
+    repos: nested.map((r) => repoInfo(r.abs, r.path, r.code.stacks)),
     workspaceProposal: suggestion === 'repo-root' ? proposal(root, entries) : null,
     suggestion,
     skills: { personal: skillsIn(home), project: skillsIn(root) },

@@ -7,17 +7,19 @@
 import { homedir } from 'node:os';
 import { detect } from '../lib/detect.mjs';
 
+// `args`: how many arguments a command takes after [dir].
 const COMMANDS = {
-  detect: (dir) => detect(dir, { home: homedir() }),
+  detect: { args: 0, run: (dir) => detect(dir, { home: homedir() }) },
 };
 const USAGE = `usage: buildorder.mjs <command> [dir] (commands: ${Object.keys(COMMANDS).join(', ')})`;
 
 function main(argv) {
   const [command, dir = '.', ...args] = argv;
   if (!command) throw new Error(USAGE);
-  const run = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : null;
-  if (!run) throw new Error(`unknown command: ${command} (${USAGE})`);
-  process.stdout.write(JSON.stringify(run(dir, ...args), null, 2) + '\n');
+  const cmd = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : null;
+  if (!cmd) throw new Error(`unknown command: ${command} (${USAGE})`);
+  if (args.length > cmd.args) throw new Error(`unexpected argument '${args[cmd.args]}'`);
+  process.stdout.write(JSON.stringify(cmd.run(dir, ...args), null, 2) + '\n');
 }
 
 try {
