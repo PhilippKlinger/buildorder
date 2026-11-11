@@ -72,6 +72,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Audit workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: pipx run zizmor==1.31.1 --persona regular .github/workflows
 
   gitleaks:
@@ -107,8 +109,6 @@ jobs:
           languages: javascript-typescript, actions
           build-mode: none
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        with:
-          category: /language:all
 
   ci-ok:
     if: always()
