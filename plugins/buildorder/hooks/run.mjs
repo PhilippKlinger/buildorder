@@ -41,9 +41,10 @@ function fileStart(input) {
  *               at most one, only as the first simple command, followed by "&&", ";" or newline
  *   git call  = git | git.exe at the command position, then neutral flags or -C <dir> (repeatable,
  *               each relative to the one before), then the subcommand
- *   add call  = git | git.exe as the first word, then `add` and words that are no git word and not
- *               exactly commit or ci, followed by "&&", ";", newline or the end; it sets no folder,
- *               but before a commit it is handed to the guard as `addBeforeCommit`
+ *   add call  = git | git.exe as the first word, then `add` or `stage` (its synonym) and words that
+ *               are no git word and not exactly commit or ci, followed by "&&", ";", newline or the
+ *               end; it sets no folder, but before a commit it is handed to the guard as
+ *               `addBeforeCommit`, and with -f/--force (also -fA etc.) as `forceAddBeforeCommit`
  *
  * Route (a), the whole command fits the grammar: subcommand `commit` gives its folder; another
  * subcommand at the command position is no commit, unless one of its later words is git (git
@@ -81,6 +82,10 @@ const DIR_CMDS = new Set(['cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl', 
 const READ_CMDS = new Set(['cd', 'pushd', 'set-location', 'push-location']);
 // Separators an add call may end with ('' is the end of the command).
 const ADD_SEPS = ['&&', ';', '\n', ''];
+// git add and its built-in synonym.
+const ADD_SUBS = new Set(['add', 'stage']);
+// The force option of git add: -f, inside combined short flags (-fA), or --force and its unique prefixes.
+const FORCE_FLAG = /^(?:-[A-Za-z]*f[A-Za-z]*|--f(?:o(?:r(?:ce?)?)?)?)$/;
 // For the guard to show when the target is unclear: both ways to a commit it can read.
 const UNCLEAR_HINT =
   'buildorder: cannot tell which repo this git commit goes to, so it was blocked. ' +
@@ -138,13 +143,14 @@ function literalDir(text) {
   return IS_WINDOWS ? text.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/') : text;
 }
 
-/** A plain `git add ...`: git as the first word and `add` right after it (no assignment, no global option). */
-const isAddCall = (words) => GIT_EXE.test(words[0]) && words[1] === 'add';
+/** A plain `git add ...` or `git stage ...`: git as the first word, the subcommand right after it (no assignment, no global option). */
+const isAddCall = (words) => GIT_EXE.test(words[0]) && ADD_SUBS.has(words[1]);
 
 /**
- * Commit folders of a command inside the grammar: `{ targets, addBefore }`, or `{ unsure: true }`.
- * `addBefore` is true when an add call runs before a commit, so the commit may take files that are
- * untracked now.
+ * Commit folders of a command inside the grammar: `{ targets, addBefore, forceAddBefore }`, or
+ * `{ unsure: true }`. `addBefore` is true when an add call runs before a commit, so the commit may
+ * take files that are untracked now; `forceAddBefore` when such an add call has -f, so ignored
+ * files may be taken too.
  */
 function grammarTargets(commands, cwd) {
   const unsure = { unsure: true };
@@ -152,7 +158,9 @@ function grammarTargets(commands, cwd) {
   let base = cwd;
   let moved = false;
   let added = false;
+  let forced = false;
   let addBefore = false;
+  let forceAddBefore = false;
   for (let i = 0; i < commands.length; i++) {
     const { words, sep } = commands[i];
     let k = 0;
@@ -193,21 +201,23 @@ function grammarTargets(commands, cwd) {
     if (sub === 'commit') {
       targets.add(dirs.reduce((dir, next) => resolve(dir, next), base));
       addBefore ||= added;
+      forceAddBefore ||= forced;
       continue;
     }
     // git among the arguments of another subcommand runs on its own (submodule foreach, rebase -x, bisect run).
     const rest = words.slice(j + 1);
     if (rest.some((w) => GIT_WORD.test(w))) return unsure;
     const oddAdd = !isAddCall(words) || !ADD_SEPS.includes(sep) || rest.some((w) => /^(?:commit|ci)$/i.test(w));
-    if (sub === 'add') {
+    if (ADD_SUBS.has(sub)) {
       if (oddAdd) return unsure;
       added = true;
+      forced ||= rest.some((w) => FORCE_FLAG.test(w));
     }
   }
-  return targets.size > 1 ? unsure : { targets, addBefore };
+  return targets.size > 1 ? unsure : { targets, addBefore, forceAddBefore };
 }
 
-/** Route (b): `{ path, addBefore }` of a commit whose rest is message text, or null (see the grammar above). */
+/** Route (b): `{ path, addBefore, forceAddBefore }` of a commit whose rest is message text, or null (see the grammar above). */
 function freeTextTarget(command, cwd) {
   const tokens = lex(command, true);
   if (tokens === null) return null;
@@ -218,13 +228,15 @@ function freeTextTarget(command, cwd) {
   const result = grammarTargets(commands, cwd);
   if (result.unsure || result.targets.size !== 1) return null;
   const tail = command.slice(tokens.at(-1).end);
-  return TAIL_DENY.some((re) => re.test(tail)) ? null : { path: [...result.targets][0], addBefore: result.addBefore };
+  if (TAIL_DENY.some((re) => re.test(tail))) return null;
+  return { path: [...result.targets][0], addBefore: result.addBefore, forceAddBefore: result.forceAddBefore };
 }
 
 /**
- * Bash/PowerShell: `{ path, unclear, addBefore }` for the folder the git commit runs in, or null when
- * the command makes no commit. `addBefore`: a git add call runs before the commit. Unclear targets
- * use the session folder and carry `hint` (see the grammar above).
+ * Bash/PowerShell: `{ path, unclear, addBefore, forceAddBefore }` for the folder the git commit runs
+ * in, or null when the command makes no commit. `addBefore`: a git add call runs before the commit;
+ * `forceAddBefore`: one of them has -f. Unclear targets use the session folder and carry `hint`
+ * (see the grammar above).
  */
 function gitStart(input) {
   const command = input.tool_input?.command;
@@ -237,7 +249,8 @@ function gitStart(input) {
   const result = tokens === null ? { unsure: true } : grammarTargets(simpleCommands(tokens), cwd);
   if (!result.unsure) {
     if (result.targets.size === 0) return null;
-    return { path: [...result.targets][0], unclear: false, addBefore: result.addBefore };
+    const { addBefore, forceAddBefore } = result;
+    return { path: [...result.targets][0], unclear: false, addBefore, forceAddBefore };
   }
   if (!bearing) return null;
   const target = freeTextTarget(command, cwd);
@@ -325,6 +338,7 @@ async function main() {
   const context = {
     root, ws, startPath: start.path, startUnclear: start.unclear, startHint: start.hint,
     addBeforeCommit: start.addBefore === true,
+    forceAddBeforeCommit: start.forceAddBefore === true,
   };
   const results = [];
   for (const hook of hooks) {

@@ -377,6 +377,9 @@ test('secret sees git inside git subcommands and allows git add first', () => {
   clear(`cd app && git add . && git commit -m ${msg}`, root, app);
   clear(`git add a.mjs; git add -A\ngit commit -m ${msg}`, app, app);
   clear('git add a.mjs && git -C src commit -m x', app, join(app, 'src'));
+  // git stage is git's own name for git add and follows the same rules.
+  clear(`git stage . && git commit -m ${msg}`, app, app);
+  unclear('git stage commit && git commit -m y', root);
   // The way out the hint names for a message with git words.
   clear('git -C app commit -F msg.txt', root, app);
 

@@ -161,6 +161,43 @@ test('git add before the commit: untracked UTF-16 files are scanned', () => {
   assert.match(text, /bare16\.txt:1 AWS Access Key/);
 });
 
+test('git stage is git add: untracked files are scanned before the commit', () => {
+  const { app } = untracked({ 'src/config.js': awsLine() });
+  const cases = [
+    ['git stage . && git commit -m x', 'Bash'],
+    ['git stage -A; git commit -m x', 'PowerShell'],
+    [`git stage . && git commit -m "it's x"`, 'Bash'], // message text route
+  ];
+  for (const [command, tool] of cases) {
+    assert.match(assertDeny(commit(command, { cwd: app, tool })), /src\/config\.js:1 AWS Access Key AKIA\.\.\. \(untracked/, command);
+  }
+});
+
+test('git add -f before the commit: ignored files are scanned too, plain git add leaves them out', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  write(app, { '.gitignore': 'secret.js\n' });
+  commitAll(app);
+  write(app, { 'secret.js': awsLine() });
+  const forced = [
+    ['git add -f secret.js && git commit -m x', 'Bash'],
+    ['git add --force secret.js && git commit -m x', 'Bash'],
+    ['git add -Af && git commit -m x', 'Bash'],
+    ['git stage -f secret.js; git commit -m x', 'PowerShell'],
+    [`git add -f secret.js && git commit -m "it's x"`, 'Bash'], // message text route
+  ];
+  for (const [command, tool] of forced) {
+    assert.match(assertDeny(commit(command, { cwd: app, tool })), /secret\.js:1 AWS Access Key AKIA\.\.\. \(untracked/, command);
+  }
+  assertSilent(commit('git add . && git commit -m x', { cwd: app }));
+  assertSilent(commit('git add -A && git commit -m x', { cwd: app }));
+});
+
+test('git add before the commit: an untracked name with a leading space is read as it is', () => {
+  const { app } = untracked({ ' lead.js': 'const a = 1;\n' });
+  assertSilent(commit('git add -A && git commit -m x', { cwd: app }));
+});
+
 test('git add before the commit: untracked files over the size budget are denied, not skipped', () => {
   const { app } = untracked({});
   writeFileSync(join(app, 'big.bin'), Buffer.alloc(33 * 1024 * 1024));

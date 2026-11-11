@@ -2,7 +2,8 @@
 // the target repo for secrets and denies with masked findings. run.mjs hands over the folder the
 // commit runs in as `startPath`; an undecidable target arrives as `startUnclear` with `startHint`.
 // With `addBeforeCommit` (a git add call runs before the commit) the untracked files of the repo
-// are scanned too: the hook runs before the command, so the add has not staged them yet.
+// are scanned too: the hook runs before the command, so the add has not staged them yet. With
+// `forceAddBeforeCommit` (git add -f) that includes ignored files.
 // Fail closed: when git or a file cannot be read, the commit is denied.
 import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -23,9 +24,14 @@ const MAX_UNTRACKED_BYTES = 32 * 1024 * 1024;
 const UNTRACKED_NOTE = ' (untracked, git add may pick it up)';
 
 const unreadable = () => ({ deny: 'buildorder: the staged changes could not be read, so this commit was blocked. Try again.' });
-const tooLarge = () => ({
+const untrackedUnreadable = () => ({
+  deny: 'buildorder: the untracked files that git add may pick up could not be read, so this commit was blocked. Try again.',
+});
+// With git add -f, ignored files count too, so a .gitignore entry is no way out.
+const tooLarge = (force) => ({
   deny: 'buildorder: the untracked files that git add may pick up are too large to check for secrets ' +
-    '(over 32 MB), so this commit was blocked. Gitignore large files, or run git add on its own first.',
+    '(over 32 MB), so this commit was blocked. ' +
+    (force ? 'Run git add on its own first, then commit.' : 'Gitignore large files, or run git add on its own first.'),
 });
 
 /** Added lines of a `-U0` diff as `{ file, line, text }`. */
@@ -58,15 +64,18 @@ function addedLines(diff) {
 const names = (stdout) => stdout.split('\0').filter((n) => n !== '');
 
 /**
- * Findings in the untracked, non-ignored files of the repo at `startPath`, read from disk the way
- * the diff passes read git output (NUL bytes dropped, so UTF-16 text is seen), or `{ deny }`.
+ * Findings in the untracked files of the repo at `startPath` (ignored ones only with `force`, as
+ * git add -f takes them), read from disk the way the diff passes read git output (NUL bytes
+ * dropped, so UTF-16 text is seen), or `{ deny }`.
  */
-function untrackedFindings(startPath, seenFiles) {
+function untrackedFindings(startPath, seenFiles, force) {
   const topRes = gitResult(startPath, [...BASE, 'rev-parse', '--show-toplevel']);
-  if (!topRes.ok || topRes.stdout === '') return unreadable();
+  if (!topRes.ok || topRes.stdout === '') return untrackedUnreadable();
   const top = topRes.stdout;
-  const listRes = gitResult(top, [...BASE, 'ls-files', '-o', '--exclude-standard', '-z']);
-  if (!listRes.ok) return unreadable();
+  const list = force ? ['ls-files', '-o', '-z'] : ['ls-files', '-o', '--exclude-standard', '-z'];
+  // Untrimmed: a file name may start with a blank.
+  const listRes = gitResult(top, [...BASE, ...list], { trim: false });
+  if (!listRes.ok) return untrackedUnreadable();
   const findings = [];
   let budget = MAX_UNTRACKED_BYTES;
   for (const name of names(listRes.stdout)) {
@@ -79,10 +88,10 @@ function untrackedFindings(startPath, seenFiles) {
       const stat = lstatSync(join(top, name));
       if (!stat.isFile()) continue; // links are added as links; nested repos as gitlinks
       budget -= stat.size;
-      if (budget < 0) return tooLarge();
+      if (budget < 0) return tooLarge(force);
       text = readFileSync(join(top, name)).toString('utf8');
     } catch {
-      return unreadable();
+      return untrackedUnreadable();
     }
     const lines = text.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -95,7 +104,7 @@ function untrackedFindings(startPath, seenFiles) {
 }
 
 /** @returns {{ deny: string } | null} */
-export default function secretGuard(input, { startPath, startUnclear, startHint, addBeforeCommit }) {
+export default function secretGuard(input, { startPath, startUnclear, startHint, addBeforeCommit, forceAddBeforeCommit }) {
   if (startUnclear) return { deny: startHint };
   // No second look at the command: run.mjs hands over a clear start folder only for a git commit
   // (a command it cannot read is unclear and denied above), and a regex here would miss folders
@@ -126,7 +135,7 @@ export default function secretGuard(input, { startPath, startUnclear, startHint,
 
   let untracked = 0;
   if (addBeforeCommit) {
-    const res = untrackedFindings(startPath, seenFiles);
+    const res = untrackedFindings(startPath, seenFiles, forceAddBeforeCommit === true);
     if (res.deny) return res;
     untracked = res.findings.length;
     findings.push(...res.findings);
