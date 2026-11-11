@@ -6,15 +6,20 @@ import { spawnSync } from 'node:child_process';
 const REDIRECTING = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'];
 
 function childEnv(extra = {}) {
-  const env = { ...process.env, ...extra, LC_ALL: 'C' }; // stable, English messages
-  for (const k of REDIRECTING) delete env[k];
-  return env;
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    // Windows environment names are case-insensitive.
+    if (!REDIRECTING.includes(k.toUpperCase())) env[k] = v;
+  }
+  env.LC_ALL = 'C'; // stable, English messages
+  return { ...env, ...extra }; // an explicit caller choice wins
 }
 
 /**
  * Runs git and reports the outcome. `opts.safeDirectory` adds a one-off
  * `-c safe.directory=<path>` before the subcommand (nothing is persisted).
- * `opts.env` adds environment variables (e.g. GIT_CEILING_DIRECTORIES).
+ * `opts.env` is merged last and wins over the defaults (inherited GIT_DIR, GIT_WORK_TREE and
+ * GIT_INDEX_FILE are removed and LC_ALL=C is set before it is applied).
  */
 export function gitResult(cwd, args, opts = {}) {
   const full = opts.safeDirectory ? ['-c', `safe.directory=${opts.safeDirectory}`, ...args] : args;

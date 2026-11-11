@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { normalizePath } from '../../plugins/buildorder/lib/paths.mjs';
 import { git, gitResult } from '../../plugins/buildorder/lib/git.mjs';
 
 // A temp dir must not be found inside an enclosing repository.
@@ -58,15 +59,33 @@ test('opts.safeDirectory is passed as a one-off -c before the subcommand', () =>
   }
 });
 
-test('GIT_DIR from the environment does not redirect git', () => {
-  const dir = tmp();
+test('inherited GIT_DIR does not redirect git away from cwd', () => {
+  const a = tmp();
+  const b = tmp();
   const saved = process.env.GIT_DIR;
   try {
-    process.env.GIT_DIR = join(dir, 'elsewhere');
-    assert.equal(git(dir, ['rev-parse', '--show-toplevel'], isolated(dir)), '');
+    gitResult(a, ['init', '-q']);
+    gitResult(b, ['init', '-q']);
+    process.env.GIT_DIR = join(b, '.git');
+    // Without the strip, --git-dir would report B's .git (an absolute path).
+    const gitDir = git(a, ['rev-parse', '--git-dir']);
+    assert.equal(gitDir, '.git');
+    assert.equal(normalizePath(git(a, ['rev-parse', '--show-toplevel'])), normalizePath(a));
   } finally {
     if (saved === undefined) delete process.env.GIT_DIR;
     else process.env.GIT_DIR = saved;
+    rmSync(a, { recursive: true, force: true });
+    rmSync(b, { recursive: true, force: true });
+  }
+});
+
+test('opts.env wins over the defaults', () => {
+  const dir = tmp();
+  try {
+    gitResult(dir, ['init', '-q']);
+    const r = gitResult(dir, ['rev-parse', '--git-dir'], { env: { GIT_DIR: join(dir, '.git') } });
+    assert.equal(r.ok, true);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
