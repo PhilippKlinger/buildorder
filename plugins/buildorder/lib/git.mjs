@@ -19,7 +19,8 @@ function childEnv(extra = {}) {
  * Runs git and reports the outcome. `opts.safeDirectory` adds a one-off
  * `-c safe.directory=<path>` before the subcommand (nothing is persisted).
  * `opts.env` is merged last and wins over the defaults (inherited GIT_DIR, GIT_WORK_TREE and
- * GIT_INDEX_FILE are removed and LC_ALL=C is set before it is applied).
+ * GIT_INDEX_FILE are removed and LC_ALL=C is set before it is applied). stdout is trimmed unless
+ * `opts.trim` is false (for `-z` listings, whose names may start or end with blanks).
  */
 export function gitResult(cwd, args, opts = {}) {
   const full = opts.safeDirectory ? ['-c', `safe.directory=${opts.safeDirectory}`, ...args] : args;
@@ -32,7 +33,7 @@ export function gitResult(cwd, args, opts = {}) {
   });
   return {
     ok: !r.error && r.status === 0,
-    stdout: (r.stdout ?? '').trim(),
+    stdout: opts.trim === false ? (r.stdout ?? '') : (r.stdout ?? '').trim(),
     stderr: (r.stderr ?? '').trim(),
   };
 }
