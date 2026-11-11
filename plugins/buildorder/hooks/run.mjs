@@ -41,17 +41,22 @@ function fileStart(input) {
  *               at most one, only as the first simple command, followed by "&&", ";" or newline
  *   git call  = git | git.exe at the command position, then neutral flags or -C <dir> (repeatable,
  *               each relative to the one before), then the subcommand
+ *   add call  = git | git.exe as the first word, then `add` and words that are no git word and not
+ *               exactly commit or ci, followed by "&&", ";", newline or the end; it sets no folder
  *
  * Route (a), the whole command fits the grammar: subcommand `commit` gives its folder; another
- * subcommand at the command position is no commit (its arguments cannot run anything). `ci`, any
- * other option, a second folder change, git anywhere else in a command (xargs git, bash -c
- * "git ..."), GIT_* assignments or commits into different folders are unsure.
+ * subcommand at the command position is no commit, unless one of its later words is git (git
+ * submodule foreach git ..., rebase -x "git ...", bisect run git ...: that runs a command of its
+ * own), which is unsure. `ci`, any other option, a second folder change, a folder-change word
+ * anywhere in another command (command cd, builtin cd), git anywhere else in a command (xargs git,
+ * bash -c "git ..."), an add call with assignments, global options or another separator, GIT_*
+ * assignments or commits into different folders are unsure.
  * Route (b), the rest of a commit is message text: when route (a) fails or is unsure, the raw text
  * up to and including the first plain `commit` word must fit the grammar as
- * `[cd <dir> sep] {assign} git {neutral flag | -C <dir>} commit`. The raw text after that word
- * (heredoc, $(...), quotes, escapes, newlines) is free text when it has no `git`, no `commit` or
- * `ci`, no folder-change word (cd, pushd, popd, chdir, sl, Set-Location, Push-Location,
- * Pop-Location) and no GIT_* name, so nothing in it can move the target.
+ * `[cd <dir> sep] {add call sep} {assign} git {neutral flag | -C <dir>} commit`. The raw text
+ * after that word (heredoc, $(...), quotes, escapes, newlines) is free text when it has no `git`,
+ * no `commit` or `ci`, no folder-change word (cd, pushd, popd, chdir, sl, Set-Location,
+ * Push-Location, Pop-Location) and no GIT_* name, so nothing in it can move the target.
  * Otherwise the raw text decides, before any tokenizing, so no escape, continuation or comment
  * can hide a commit: git as a word and commit, ci or alias. anywhere means unclear, otherwise
  * there is no commit. In any command that mentions git and a commit, a repo-moving GIT_* name
@@ -73,6 +78,13 @@ const TAIL_DENY = [
 // Commands that change the folder (compared in lower case) and the ones whose folder is read.
 const DIR_CMDS = new Set(['cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl', 'push-location', 'pop-location']);
 const READ_CMDS = new Set(['cd', 'pushd', 'set-location', 'push-location']);
+// Separators an add call may end with ('' is the end of the command).
+const ADD_SEPS = ['&&', ';', '\n', ''];
+// For the guard to show when the target is unclear: both ways to a commit it can read.
+const UNCLEAR_HINT =
+  'buildorder: cannot tell which repo this git commit goes to, so it was blocked. ' +
+  'Run the commit as its own command: git -C <path> commit -m <message>. ' +
+  'If the message mentions git, commit, ci or cd, write it to a file and run git -C <path> commit -F <file>.';
 // Global git options that do not change which repo git works in.
 const NEUTRAL = new Set([
   '-p', '--paginate', '-P', '--no-pager', '--no-optional-locks', '--no-replace-objects',
@@ -125,6 +137,9 @@ function literalDir(text) {
   return IS_WINDOWS ? text.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/') : text;
 }
 
+/** A plain `git add ...`: git as the first word and `add` right after it (no assignment, no global option). */
+const isAddCall = (words) => GIT_EXE.test(words[0]) && words[1] === 'add';
+
 /** Commit folders of a command inside the grammar: `{ targets }`, or `{ unsure: true }`. */
 function grammarTargets(commands, cwd) {
   const unsure = { unsure: true };
@@ -150,8 +165,9 @@ function grammarTargets(commands, cwd) {
       continue;
     }
     if (!GIT_EXE.test(cmd)) {
-      // git inside another command (xargs git, bash -c "git ...", if/then) cannot be read.
-      if (words.some((w) => GIT_WORD.test(w))) return unsure;
+      // git inside another command (xargs git, bash -c "git ...", if/then) cannot be read, nor can a
+      // folder change behind another word (command cd, builtin cd).
+      if (words.some((w) => GIT_WORD.test(w) || DIR_CMDS.has(w.toLowerCase()))) return unsure;
       continue;
     }
     const dirs = [];
@@ -167,7 +183,15 @@ function grammarTargets(commands, cwd) {
     const sub = words[j];
     if (sub === undefined) continue;
     if (sub.startsWith('-') || sub === 'ci') return unsure;
-    if (sub === 'commit') targets.add(dirs.reduce((dir, next) => resolve(dir, next), base));
+    if (sub === 'commit') {
+      targets.add(dirs.reduce((dir, next) => resolve(dir, next), base));
+      continue;
+    }
+    // git among the arguments of another subcommand runs on its own (submodule foreach, rebase -x, bisect run).
+    const rest = words.slice(j + 1);
+    if (rest.some((w) => GIT_WORD.test(w))) return unsure;
+    const oddAdd = !isAddCall(words) || !ADD_SEPS.includes(sep) || rest.some((w) => /^(?:commit|ci)$/i.test(w));
+    if (sub === 'add' && oddAdd) return unsure;
   }
   return targets.size > 1 ? unsure : { targets };
 }
@@ -177,9 +201,9 @@ function freeTextTarget(command, cwd) {
   const tokens = lex(command, true);
   if (tokens === null) return null;
   const commands = simpleCommands(tokens);
-  // Only an optional folder change, then the git call that ends in this commit word.
-  if (commands.length > 2) return null;
-  if (commands.length === 2 && !DIR_CMDS.has(commands[0].words[0].toLowerCase())) return null;
+  // Only an optional folder change, then add calls, then the git call that ends in this commit word.
+  let i = commands.length > 1 && DIR_CMDS.has(commands[0].words[0].toLowerCase()) ? 1 : 0;
+  for (; i < commands.length - 1; i++) if (!isAddCall(commands[i].words)) return null;
   const result = grammarTargets(commands, cwd);
   if (result.unsure || result.targets.size !== 1) return null;
   const tail = command.slice(tokens.at(-1).end);
@@ -188,13 +212,13 @@ function freeTextTarget(command, cwd) {
 
 /**
  * Bash/PowerShell: `{ path, unclear }` for the folder the git commit runs in, or null when the
- * command makes no commit. Unclear targets use the session folder (see the grammar above).
+ * command makes no commit. Unclear targets use the session folder and carry `hint` (see the grammar above).
  */
 function gitStart(input) {
   const command = input.tool_input?.command;
   if (typeof command !== 'string') return null;
   const cwd = cwdOf(input);
-  const unclear = { path: cwd, unclear: true };
+  const unclear = { path: cwd, unclear: true, hint: UNCLEAR_HINT };
   const bearing = GIT_WORD.test(command) && COMMIT_WORD.test(command);
   if (bearing && REDIRECT_ENV.test(command)) return unclear;
   const tokens = lex(command);
@@ -283,7 +307,7 @@ async function main() {
   const disabled = Array.isArray(ws.hooks?.disabled) ? ws.hooks.disabled : [];
   const hooks = entry.hooks.filter((h) => !(OPTIONAL.has(h) && disabled.includes(h)));
   if (hooks.length === 0) return '';
-  const context = { root, ws, startPath: start.path, startUnclear: start.unclear };
+  const context = { root, ws, startPath: start.path, startUnclear: start.unclear, startHint: start.hint };
   const results = [];
   for (const hook of hooks) {
     current = hook;

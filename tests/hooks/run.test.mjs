@@ -24,8 +24,8 @@ const STUB_KIND = {
   'handoff-reminder': 'systemMessage',
 };
 const stubSource = (name, kind) =>
-  `export default function run(input, { root, ws, startPath, startUnclear }) {\n` +
-  `  return { ${kind}: JSON.stringify({ hook: '${name}', root, startPath, startUnclear, name: ws.name }) };\n}\n`;
+  `export default function run(input, { root, ws, startPath, startUnclear, startHint }) {\n` +
+  `  return { ${kind}: JSON.stringify({ hook: '${name}', root, startPath, startUnclear, startHint, name: ws.name }) };\n}\n`;
 
 /**
  * A copy of the plugin's run.mjs, output.mjs and lib/ with stub hook modules, so the entry point
@@ -186,13 +186,17 @@ function secretProbe(app) {
     assert.ok(r, `answer for ${command}`);
     same(r.startPath, expected);
     assert.equal(r.startUnclear, false, command);
+    assert.equal(r.startHint, undefined, command);
   };
   // Unclear targets use cwd and say so, so the guard can refuse instead of checking the wrong repo.
+  // The hint names both ways out: a plain `git -C <path> commit`, and `-F <file>` for the message.
   const unclear = (command, cwd) => {
     const r = report(command, cwd);
     assert.ok(r, `answer for ${command}`);
     same(r.startPath, cwd);
     assert.equal(r.startUnclear, true, command);
+    assert.match(r.startHint, /git -C <path> commit -m/, command);
+    assert.match(r.startHint, /git -C <path> commit -F <file>/, command);
   };
   // No commit: nothing to check, so the hook is not called even inside the workspace.
   const none = (command, cwd = app) => assert.equal(report(command, cwd), null, String(command));
@@ -359,6 +363,48 @@ test('secret reads the rest of a parsed commit as message text', () => {
   unclear('git log --grep commit && git commit -m "it\'s"', root);
   unclear('git commit"x" -m "it\'s"', root);
   unclear('git -C app commit -m "a" && git -C src commit -m "b\'"', root);
+});
+
+test('secret sees git inside git subcommands and allows git add first', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  const { clear, unclear, none } = secretProbe(app);
+  const msg = `"$(cat <<'EOF'\nfeat: x\nEOF\n)"`;
+
+  // Plain git add calls before the commit do not set the target; a single cd still comes first.
+  clear(`git add a.mjs b.mjs && git commit -m ${msg}`, app, app);
+  clear('cd app && git add . && git commit -m x', root, app);
+  clear(`cd app && git add . && git commit -m ${msg}`, root, app);
+  clear(`git add a.mjs; git add -A\ngit commit -m ${msg}`, app, app);
+  clear('git add a.mjs && git -C src commit -m x', app, join(app, 'src'));
+  // The way out the hint names for a message with git words.
+  clear('git -C app commit -F msg.txt', root, app);
+
+  // Unclear: the add call has a global option, a later folder change, or the wrong shape.
+  unclear('git -C ../o add x && git commit -m y', root);
+  unclear('git -C ../o add x && git commit -m "it\'s"', root);
+  unclear('git --no-pager add x && git commit -m "it\'s"', root);
+  unclear('git add x && cd ../o && git commit -m x', root);
+  unclear('git add x && cd ../o && git commit -m "it\'s"', root);
+  unclear('git add x || git commit -m y', root);
+  unclear('git add x || git commit -m "it\'s"', root);
+  unclear('git add commit && git commit -m y', root);
+  unclear('git add ci && git commit -m "it\'s"', root);
+  unclear('git add git && git commit -m y', root);
+  unclear('FOO=1 git add x && git commit -m y', root);
+  unclear('FOO=1 git add x && git commit -m "it\'s"', root);
+  unclear('echo x && git add y && git commit -m "it\'s"', root);
+  unclear('git add x && echo y && git commit -m "it\'s"', root);
+  // git as an argument of another git subcommand runs a command of its own.
+  unclear('git submodule foreach git commit -am bump', root);
+  unclear('git rebase -x "git commit --amend" main', root);
+  unclear('git rebase --exec "git commit --amend" main', root);
+  unclear('git bisect run git commit -m x', root);
+  none('git bisect run git status');
+  // A folder change behind another word (command cd, builtin cd).
+  unclear('command cd ../o && git commit -m x', root);
+  unclear('builtin cd ../o && git commit -m x', root);
+  unclear('command cd ../o && git commit -m "it\'s"', root);
 });
 
 test('secret reads Git Bash drive paths on Windows', { skip: process.platform !== 'win32' }, () => {
