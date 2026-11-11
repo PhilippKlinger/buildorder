@@ -11,22 +11,28 @@ export const PATTERNS = [
   ['API Key (sk-...)', /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b/],
   ['Google API Key', /\bAIza[0-9A-Za-z_-]{35}\b/],
   ['Slack Token', /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/],
-  ['Django SECRET_KEY', /\bSECRET_KEY\s*=\s*['"][^'"]{20,}['"]/],
-  ['Password/token in code', /\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\b\s*[:=]\s*['"][^'"\s]{8,}['"]/i],
+  ['Django SECRET_KEY', /\bSECRET_KEY\s*=\s*['"]([^'"]{20,})['"]/],
+  ['Password/token in code', /\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\b\s*[:=]\s*['"]([^'"\s]{8,})['"]/i],
 ];
 
-export const PLACEHOLDER = /(change[-_]?me|your[-_]|example|dummy|placeholder|xxx+|\*{3,}|<[^>]+>|\$\{|os\.environ|getenv|process\.env|config\()/i;
+// Applies to the matched secret value only, never to the rest of the line.
+export const PLACEHOLDER = /(change[-_]?me|your[-_]|example|dummy|placeholder|xxx+|\*{3,}|<[^>]{1,100}>|\$\{|os\.environ|getenv|process\.env)/i;
 
 export const isSecretFile = (path) => SECRET_FILE.test(path) && !TEMPLATE_FILE.test(path);
 
-export const mask = (v) => (v.length <= 8 ? '***' : `${v.slice(0, 4)}...${v.slice(-2)}`);
+/** Hides short values completely; long ones show at most their first 4 characters. */
+export const mask = (v) => (v.length <= 12 ? '***' : `${v.slice(0, 4)}...`);
 
-/** First matching pattern in a line of text as `{ label, masked }`, or null. Placeholder lines never match. */
+/**
+ * First secret in a line of text as `{ label, masked }`, or null. A match is ignored when the
+ * matched value itself is a placeholder; other text on the line (URLs, comments) does not matter.
+ */
 export function scanLine(text) {
-  if (PLACEHOLDER.test(text)) return null;
   for (const [label, re] of PATTERNS) {
-    const m = text.match(re);
-    if (m) return { label, masked: mask(m[0]) };
+    for (const m of text.matchAll(new RegExp(re.source, re.flags + 'g'))) {
+      const value = m[1] ?? m[0]; // quoted patterns capture the value without prefix and quotes
+      if (!PLACEHOLDER.test(value)) return { label, masked: mask(value) };
+    }
   }
   return null;
 }

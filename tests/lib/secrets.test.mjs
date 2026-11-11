@@ -37,7 +37,9 @@ test('allows placeholders and environment lookups', () => {
     "SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')",
     'const t = process.env.GITHUB_TOKEN',
     'password = "change-me-please"',
-    `token = "${fakeSecret('github')}" # example`,
+    'password = "${DB_PASSWORD}"',
+    "SECRET_KEY = 'os.environ[DJANGO_KEY_NAME]'",
+    'password = "changeme123"',
     'SECRET_KEY = "<your secret key here>"',
   ]) assert.equal(scanLine(line), null, line);
 });
@@ -52,5 +54,34 @@ test('isSecretFile flags env and key files but not templates', () => {
 
 test('mask hides short values entirely and keeps the edges of long ones', () => {
   assert.equal(mask('short'), '***');
-  assert.equal(mask('abcdefghijkl'), 'abcd...kl');
+  assert.equal(mask('abcdefghijkl'), '***');
+  assert.equal(mask('abcdefghijklm'), 'abcd...');
+});
+
+test('masked output reveals at most 4 characters of the value, not the prefix', () => {
+  const secret = fakeSecret('password').repeat(2);
+  const hit = scanLine(`password = "${secret}"`);
+  assert.equal(hit.masked, secret.slice(0, 4) + '...');
+  assert.ok(!hit.masked.includes('password'));
+});
+
+test('a real key on a line with example.com or an example comment is still flagged', () => {
+  assert.equal(scanLine(`curl https://example.com -H "x: ${fakeSecret('aws')}"`).label, 'AWS Access Key');
+  assert.equal(scanLine(`token = ${fakeSecret('github')} # example`).label, 'GitHub Token');
+});
+
+test('flags a Google API key', () => {
+  assert.equal(scanLine(`k = ${'AIza' + 'Fake'.repeat(8) + 'abc'}`).label, 'Google API Key');
+});
+
+test('flags a Slack token', () => {
+  assert.equal(scanLine(`t = ${['xoxb', '1234567890', 'fake'].join('-')}`).label, 'Slack Token');
+});
+
+test('a long line of "<" without ">" is scanned quickly', () => {
+  const line = 'password = "' + '<'.repeat(20000);
+  const start = performance.now();
+  scanLine(line);
+  scanLine(`password = "${'<'.repeat(20000)}"`);
+  assert.ok(performance.now() - start < 50);
 });

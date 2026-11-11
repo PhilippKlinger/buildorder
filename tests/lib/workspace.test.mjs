@@ -65,5 +65,28 @@ test('repoFor maps a path to its repo and rejects outside paths', () => {
   same(repoFor(ws, root, join(root, 'app')).abs, join(root, 'app'));
   assert.equal(repoFor(ws, root, join(root, 'application', 'a.ts')), null);
   assert.equal(repoFor(ws, root, join(root, 'HANDOFF.md')), null);
-  assert.equal(repoFor(ws, root, join(root, 'app', '..', 'x.md')), null);
+  assert.equal(repoFor(ws, root, root + '/app/../x.md'), null);
+  assert.equal(repoFor(ws, root, root + '/../x'), null);
+});
+
+test('repoFor canonicalises repo paths', () => {
+  const root = makeWorkspace();
+  const file = join(root, 'app', 'src', 'a.ts');
+  for (const path of ['./app', 'app/../app', 'app/', join(root, 'app')]) {
+    const hit = repoFor({ repos: [{ path }] }, root, file);
+    assert.equal(hit.path, 'app', path);
+    same(hit.abs, join(root, 'app'));
+  }
+  const whole = repoFor({ repos: [{ path: '.' }] }, root, file);
+  assert.equal(whole.path, '');
+  same(whole.abs, root);
+  assert.equal(repoFor({ repos: [{ path: '../elsewhere' }] }, root, file), null);
+});
+
+test('repoFor prefers the most specific nested repo', () => {
+  const root = makeWorkspace();
+  const ws = { repos: [{ path: '.' }, { path: 'app' }, { path: 'app/packages/lib' }] };
+  assert.equal(repoFor(ws, root, join(root, 'app', 'packages', 'lib', 'x.ts')).path, 'app/packages/lib');
+  assert.equal(repoFor(ws, root, join(root, 'app', 'x.ts')).path, 'app');
+  assert.equal(repoFor(ws, root, join(root, 'docs.md')).path, '');
 });

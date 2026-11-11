@@ -17,6 +17,9 @@ function isWorkspace(ws) {
  * with `schemaVersion === 1` returns that folder, anything else (invalid JSON, older kit,
  * foreign schema) returns null at once, because a workspace further up is a different context.
  *
+ * `startPath` is resolved against the current directory when relative (hooks pass absolute
+ * paths) and symlinks are not resolved with realpath.
+ *
  * Cost: one `stat` per level on the way up (a missing entry is cheap and is not an
  * exception), plus one file read at the level that has a workspace.json. No spawned processes.
  */
@@ -43,14 +46,23 @@ export function loadWorkspace(root) {
   return isWorkspace(ws) ? ws : null;
 }
 
-/** The repo of `ws.repos` that contains `absPath` as `{ path, abs }`, or null (outside every repo). */
+/**
+ * The repo of `ws.repos` that contains `absPath` as `{ path, abs }`, or null (outside every repo).
+ * Each `repo.path` is canonicalised against `root` first, so `./app`, `app/../app`, `.` (the root
+ * itself) and absolute paths all work; entries outside the root are skipped. The most specific
+ * (longest) matching repo wins. `path` is the normalised path relative to `root` ('' for the root).
+ */
 export function repoFor(ws, root, absPath) {
   const rel = relativeTo(absPath, root);
   if (rel === null) return null;
+  let best = null;
   for (const repo of ws?.repos ?? []) {
     if (typeof repo?.path !== 'string') continue;
-    const p = normalizePath(repo.path);
-    if (rel === p || rel.startsWith(p + '/')) return { path: repo.path, abs: resolve(root, repo.path) };
+    const abs = resolve(root, repo.path);
+    const p = relativeTo(abs, root);
+    if (p === null) continue;
+    const hit = p === '' || rel === p || rel.startsWith(p + '/');
+    if (hit && (best === null || p.length > best.path.length)) best = { path: p, abs };
   }
-  return null;
+  return best;
 }
