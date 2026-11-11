@@ -1,0 +1,13 @@
+{
+  "name": "buildorder",
+  "owner": {
+    "name": "Philipp Klinger"
+  },
+  "plugins": [
+    {
+      "name": "buildorder",
+      "source": "./plugins/buildorder",
+      "description": "Claude Code plugin that sets up the engineering around your agent."
+    }
+  ]
+}
