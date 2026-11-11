@@ -12,7 +12,8 @@ const DEPTH = 2;
 const SUPPORTED = ['angular', 'react', 'django', 'python', 'go', 'docker', 'postgres', 'github-actions'];
 const UNSUPPORTED = ['vue', 'next', 'astro', 'react-native', 'react', 'flask', 'php', 'node'];
 
-const COMPOSE = ['compose*.y*ml', 'docker-compose*.y*ml'].map(globToRegExp);
+// `compose.yml`, `docker-compose.prod.yaml`, ... but not `composer.yml` or `compose-ci.yml`.
+const COMPOSE = /^(docker-)?compose(\.[\w-]+)?\.ya?ml$/;
 const REQUIREMENTS = globToRegExp('requirements*.txt');
 const WORKFLOW = /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/;
 // An image line whose last path segment is exactly `postgres`: optional registry/namespace
@@ -21,7 +22,7 @@ const POSTGRES_IMAGE = /^\s*(?:-\s*)?image:\s*["']?(?:[\w.-]+(?::\d+)?\/)*postgr
 
 function read(dir, rel) {
   try {
-    return readFileSync(join(dir, rel), 'utf8').replace(/^﻿/, '');
+    return readFileSync(join(dir, rel), 'utf8').replace(/^\uFEFF/, '');
   } catch {
     return '';
   }
@@ -30,10 +31,59 @@ function read(dir, rel) {
 // `name` as a whole package name: not part of `django-environ`, `djangorestframework`, `my.django`.
 const hasPackage = (text, name) => new RegExp(`(^|[^a-z0-9_.-])${name}(?![a-z0-9_.-])`).test(text);
 
-/** Requirement files with comment lines dropped, lowercase. */
-const pyText = (dir, files) => files
-  .map((f) => read(dir, f).toLowerCase().split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n'))
-  .join('\n');
+// Drops a `#` comment, ignoring `#` inside quotes.
+function stripComment(line) {
+  let quote = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) { if (c === quote) quote = ''; } else if (c === '"' || c === "'") quote = c;
+    else if (c === '#') return line.slice(0, i);
+  }
+  return line;
+}
+
+const quoted = (text) => [...text.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2]);
+
+/**
+ * Dependency declarations of a pyproject.toml, one per entry, nothing else (classifiers,
+ * keywords, descriptions stay out). Line-based, no TOML parser. Read:
+ * `[project] dependencies = [...]`, `[project.optional-dependencies]`, `[dependency-groups]`
+ * (quoted requirement strings) and `[tool.poetry.dependencies]`,
+ * `[tool.poetry.group.*.dependencies]` (the package names on the left of `=`).
+ */
+export function pyprojectDeps(text) {
+  const out = [];
+  let section = '';
+  let depth = 0; // open brackets of an array being read
+  for (const raw of text.split('\n')) {
+    const line = stripComment(raw).trim();
+    if (depth > 0) {
+      out.push(...quoted(line));
+      depth += (line.match(/\[/g) ?? []).length - (line.match(/\]/g) ?? []).length;
+      continue;
+    }
+    const header = line.match(/^\[\[?\s*([^\]]+?)\s*\]\]?$/);
+    if (header) { section = header[1]; continue; }
+    const kv = line.match(/^([\w."-]+)\s*=\s*(.*)$/);
+    if (!kv) continue;
+    const [, key, rest] = kv;
+    if (/^tool\.poetry\.(group\.[^.]+\.)?dependencies$/.test(section)) out.push(key.replace(/"/g, ''));
+    else if ((section === 'project' && key === 'dependencies')
+      || section === 'project.optional-dependencies' || section === 'dependency-groups') {
+      if (!rest.startsWith('[')) continue;
+      out.push(...quoted(rest));
+      depth = (rest.match(/\[/g) ?? []).length - (rest.match(/\]/g) ?? []).length;
+    }
+  }
+  return out;
+}
+
+/** Python dependency declarations of the given files, lowercase, one per line, without comments. */
+const pyText = (dir, files) => files.map((f) => {
+  const text = read(dir, f);
+  if (basename(f) === 'pyproject.toml') return pyprojectDeps(text).join('\n').toLowerCase();
+  return text.toLowerCase().split('\n').map(stripComment).join('\n');
+}).join('\n');
 
 /**
  * `{ supported, unsupported }`: stacks the build order can plan for, and
@@ -80,7 +130,8 @@ export function detectStacks(dir) {
   if (goMod.length) supported.add('go');
 
   // --- Docker and Postgres.
-  const composeFiles = named((n) => COMPOSE.some((re) => re.test(n)));
+  // Files under a `.github` folder (workflow files) are never compose files.
+  const composeFiles = files.filter((f) => COMPOSE.test(basename(f)) && !f.split('/').includes('.github'));
   const dockerfiles = named((n) => n === 'Dockerfile' || /^Dockerfile\./.test(n) || /\.dockerfile$/i.test(n));
   if (composeFiles.length || dockerfiles.length) supported.add('docker');
   const goText = goMod.map((f) => read(dir, f)).join('\n');

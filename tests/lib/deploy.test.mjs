@@ -49,3 +49,6 @@ test('container evidence is capped at 3', () =>
   check({ Dockerfile: 'x', 'docker-compose.yml': 'x', 'docker-compose.yaml': 'x', 'compose.yml': 'x' },
     { target: 'container', evidence: ['Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'] }));
 test('node_modules is not evidence', () => check({ 'node_modules/p/x.php': 'x' }, { target: 'unknown', evidence: [] }));
+
+test('vendor and build folders are no evidence', () =>
+  check({ 'vendor/x/y.php': 'x', 'build/z.php': 'x' }, { target: 'unknown', evidence: [] }));

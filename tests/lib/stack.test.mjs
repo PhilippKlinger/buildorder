@@ -49,7 +49,7 @@ test('manage.py means django', () => check({ 'manage.py': '' }, out(['django']))
 test('django beats python', () =>
   check({ 'requirements.txt': 'Django==5.0\n', 'pyproject.toml': '[project]\n' }, out(['django'])));
 test('django in pyproject.toml means django', () =>
-  check({ 'pyproject.toml': 'dependencies = ["django>=5"]\n' }, out(['django'])));
+  check({ 'pyproject.toml': '[project]\ndependencies = ["django>=5"]\n' }, out(['django'])));
 test('django-environ alone is python, not django', () =>
   check({ 'requirements.txt': 'django-environ==0.11\ndjangorestframework\n' }, out(['python'])));
 test('a commented django line does not count', () =>
@@ -111,3 +111,48 @@ test('output order is fixed and lists have no duplicates', () => {
   }, out(['angular', 'go', 'docker', 'github-actions'], ['vue', 'php']));
 });
 test('missing folder has no stacks', () => assert.deepEqual(detectStacks(join(tmpdir(), 'bo missing dir x')), out()));
+
+// --- precision: pyproject.toml declarations, compose names, skipped folders
+test('pyproject classifiers, keywords and description do not count as dependencies', () => {
+  check({
+    'pyproject.toml': [
+      '[project]',
+      'name = "app"',
+      'description = "talks to psycopg and django"',
+      'keywords = ["django", "flask"]',
+      'classifiers = ["Framework :: Django", "Framework :: Flask"]',
+      'dependencies = ["requests"]',
+      '',
+    ].join('\n'),
+  }, out(['python']));
+});
+test('pyproject: multi-line dependencies, extras and groups count', () => {
+  check({ 'pyproject.toml': '[project]\ndependencies = [\n  "requests",\n  "Django[argon2]>=5",\n]\n' }, out(['django']));
+  check({ 'pyproject.toml': '[project.optional-dependencies]\ndb = ["psycopg[binary]"]\n' }, out(['python', 'postgres']));
+  check({ 'pyproject.toml': '[dependency-groups]\ndev = ["flask"]\n' }, out([], ['flask']));
+});
+test('pyproject: poetry-style django = "^5.0" counts', () => {
+  check({ 'pyproject.toml': '[tool.poetry.dependencies]\npython = "^3.12"\ndjango = "^5.0"\n' }, out(['django']));
+  check({ 'pyproject.toml': '[tool.poetry.group.dev.dependencies]\npsycopg2 = "^2.9"\n' }, out(['python', 'postgres']));
+});
+test('pyproject: comments are ignored, a hash inside quotes is not a comment', () => {
+  check({ 'pyproject.toml': '[project]\ndependencies = [\n  # "django"\n  "requests", # psycopg\n]\n' }, out(['python']));
+});
+test('requirements: inline comments are stripped', () => {
+  check({ 'requirements.txt': 'requests  # psycopg later\n' }, out(['python']));
+  check({ 'requirements.txt': 'psycopg2  # driver\n' }, out(['python', 'postgres']));
+});
+test('composer.yml and workflow files named compose-* are not compose files', () => {
+  check({ 'composer.yml': 'x', 'composer.yaml': 'x' }, out());
+  check({ '.github/workflows/compose-ci.yml': 'on: push\n' }, out(['github-actions']));
+});
+test('compose.override.yml and docker-compose.prod.yaml are compose files', () => {
+  check({ 'compose.override.yml': 'x' }, out(['docker']));
+  check({ 'docker-compose.prod.yaml': 'x' }, out(['docker']));
+});
+test('vendor and build folders are skipped', () =>
+  check({ 'vendor/x/y.php': '<?php', 'build/go.mod': 'x', 'venv/requirements.txt': 'django' }, out()));
+test('a BOM in package.json does not hide dependencies', () =>
+  check({ 'package.json': String.fromCharCode(0xFEFF) + pkg({ react: '1', vite: '1' }) }, out(['react'])));
+test('a BOM in a requirements file does not hide the first line', () =>
+  check({ 'requirements.txt': String.fromCharCode(0xFEFF) + 'django\n' }, out(['django'])));
