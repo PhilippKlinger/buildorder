@@ -1,5 +1,6 @@
 {
   "name": "buildorder",
+  "description": "Claude Code plugin marketplace for buildorder, which sets up the engineering around your agent.",
   "owner": {
     "name": "Philipp Klinger"
   },
