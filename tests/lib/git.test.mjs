@@ -2,8 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { git, gitResult } from '../../plugins/buildorder/lib/git.mjs';
+
+// A temp dir must not be found inside an enclosing repository.
+const isolated = (dir) => ({ env: { GIT_CEILING_DIRECTORIES: dirname(dir) } });
 
 function tmp() {
   return mkdtempSync(join(tmpdir(), 'bo test '));
@@ -12,7 +15,7 @@ function tmp() {
 test('git outside a repository returns an empty string', () => {
   const dir = tmp();
   try {
-    assert.equal(git(dir, ['rev-parse', '--show-toplevel']), '');
+    assert.equal(git(dir, ['rev-parse', '--show-toplevel'], isolated(dir)), '');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -32,7 +35,7 @@ test('git returns trimmed output inside a repository (path with spaces)', () => 
 test('gitResult reports failure without throwing', () => {
   const dir = tmp();
   try {
-    const r = gitResult(dir, ['rev-parse', '--show-toplevel']);
+    const r = gitResult(dir, ['rev-parse', '--show-toplevel'], isolated(dir));
     assert.equal(r.ok, false);
     assert.equal(r.stdout, '');
     assert.match(r.stderr, /not a git repository/i);
@@ -51,6 +54,19 @@ test('opts.safeDirectory is passed as a one-off -c before the subcommand', () =>
     assert.ok(r.stdout.split('\n').includes('/some/where'));
     assert.equal(git(dir, ['config', '--local', '--get-all', 'safe.directory']), '');
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('GIT_DIR from the environment does not redirect git', () => {
+  const dir = tmp();
+  const saved = process.env.GIT_DIR;
+  try {
+    process.env.GIT_DIR = join(dir, 'elsewhere');
+    assert.equal(git(dir, ['rev-parse', '--show-toplevel'], isolated(dir)), '');
+  } finally {
+    if (saved === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = saved;
     rmSync(dir, { recursive: true, force: true });
   }
 });

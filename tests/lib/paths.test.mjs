@@ -37,6 +37,24 @@ test('globToRegExp: ** spans directories', () => {
   assert.ok(globToRegExp('**/x.md').test('a/b/x.md'));
 });
 
+test('relativeTo collapses .. in absolute paths', () => {
+  const root = resolve('some', 'root');
+  assert.equal(relativeTo(resolve(root, '..', 'etc', 'passwd'), root), null);
+  assert.equal(relativeTo(root + '/../etc/passwd', root), null);
+  assert.equal(relativeTo(root + '/a/../b.txt', root), 'b.txt');
+  assert.equal(relativeTo('../x', root), null);
+});
+
+test('relativeTo is case-insensitive on win32 only', () => {
+  const root = resolve('some', 'Root');
+  const file = resolve('some', 'ROOT', 'x');
+  assert.equal(relativeTo(file, root), WIN ? 'x' : null);
+});
+
+test('globToRegExp: docs/** does not match docs itself', () => {
+  assert.ok(!globToRegExp('docs/**').test('docs'));
+});
+
 test('globToRegExp: * and ? stay within one segment', () => {
   assert.ok(globToRegExp('docs/*.md').test('docs/a.md'));
   assert.ok(!globToRegExp('docs/*.md').test('docs/a/b.md'));

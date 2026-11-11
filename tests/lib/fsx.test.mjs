@@ -41,6 +41,26 @@ test('walk on a missing directory returns an empty list', () => {
   assert.deepEqual(walk(join(tmpdir(), 'bo missing dir'), 2, SKIP), []);
 });
 
+test('walk returns an empty list when dir is a file', () => {
+  const dir = tree(['f.txt']);
+  try {
+    assert.deepEqual(walk(join(dir, 'f.txt'), 2, SKIP), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('readJson ignores a leading UTF-8 BOM', () => {
+  const dir = tree([]);
+  try {
+    const file = join(dir, 'bom.json');
+    writeFileSync(file, '﻿{"a":1}');
+    assert.deepEqual(readJson(file), { a: 1 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('readJson returns null for missing or invalid files', () => {
   const dir = tree(['bad.json']);
   try {

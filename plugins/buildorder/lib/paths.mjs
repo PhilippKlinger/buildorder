@@ -1,5 +1,5 @@
 // Path helpers shared by the CLI commands. No dependencies.
-import { isAbsolute, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -12,7 +12,8 @@ export function normalizePath(p) {
 
 /** Path of `file` relative to `root` (normalized), or null when it lies outside the root. */
 export function relativeTo(file, root) {
-  const abs = normalizePath(isAbsolute(file) ? file : resolve(root, file));
+  // resolve() keeps absolute paths but collapses `..`, so escapes cannot slip through.
+  const abs = normalizePath(resolve(root, file));
   const base = normalizePath(resolve(root));
   if (abs === base) return '';
   return abs.startsWith(base + '/') ? abs.slice(base.length + 1) : null;
