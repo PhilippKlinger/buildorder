@@ -208,7 +208,8 @@ export function nestBlockers(root) {
   return blockers;
 }
 
-const validName = (name) => NAME_RE.test(name) && !/^\.+$/.test(name);
+/** NAME_RE, and not only dots (`.` and `..` name no new folder). */
+export const validName = (name) => NAME_RE.test(name) && !/^\.+$/.test(name);
 
 /**
  * `name` when it satisfies NAME_RE, else an ASCII version of it (accents dropped, other

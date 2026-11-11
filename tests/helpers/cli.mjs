@@ -94,14 +94,14 @@ export function fakeHome() {
 
 /**
  * Runs `buildorder.mjs ...args`. A trailing options object sets `home` (HOME and USERPROFILE,
- * which `os.homedir()` reads) and `cwd`; without `home` an empty temp home is used, so the
- * real home never leaks into a test.
+ * which `os.homedir()` reads), `cwd` and extra `env` variables; without `home` an empty temp
+ * home is used, so the real home never leaks into a test.
  * @returns {{ status: number, stdout: string, stderr: string, json: any }}
  */
 export function cli(...args) {
   const opts = typeof args.at(-1) === 'object' && args.at(-1) !== null ? args.pop() : {};
   const home = opts.home ?? fakeHome();
-  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const env = { ...process.env, ...opts.env, HOME: home, USERPROFILE: home };
   let status = 0;
   let stdout;
   let stderr = '';

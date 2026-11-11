@@ -2,14 +2,17 @@
 // buildorder CLI: the deterministic part of the skills. Prints JSON on stdout.
 //
 //   node buildorder.mjs detect [dir]
+//   node buildorder.mjs nest [dir] [name]
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1.
 import { homedir } from 'node:os';
 import { detect } from '../lib/detect.mjs';
+import { nest } from '../lib/nest.mjs';
 
 // `args`: how many arguments a command takes after [dir].
 const COMMANDS = {
   detect: { args: 0, run: (dir) => detect(dir, { home: homedir() }) },
+  nest: { args: 1, run: (dir, name) => nest(dir, name) },
 };
 const USAGE = `usage: buildorder.mjs <command> [dir] (commands: ${Object.keys(COMMANDS).join(', ')})`;
 
