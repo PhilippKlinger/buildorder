@@ -7,8 +7,8 @@ import { repoRoot, trackedFiles } from '../helpers/repo.mjs';
 const HOME_PATTERNS = [/[A-Za-z]:[\\/]+Users[\\/]/i, /\/home\/[a-z]/, /\/Users\/[A-Za-z]/];
 // Requires a dotted domain ending in letters, so npm specs like pkg@1.2.3 do not match.
 const EMAIL = /[\w.+-]+@(?:[\w-]+\.)+[A-Za-z]{2,}\b/;
-const UMLAUT = /[äöüÄÖÜß]/;
-const GERMAN_ALLOWED = /(^|\/)templates\/.*\/de\//;
+const UMLAUT = /[\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df]/;
+const GERMAN_ALLOWED = /(^|\/)templates\/(.*\/)?de\//;
 
 /** Text lines of every tracked file; binary files (containing NUL) are skipped. */
 function* textLines() {
@@ -60,4 +60,10 @@ test('shipped text is English', () => {
   const probe = 'gr' + String.fromCharCode(0xfc) + 'n';
   assert.ok(UMLAUT.test(probe), 'pattern must match an umlaut');
   assert.deepEqual(offenders(UMLAUT, (f) => GERMAN_ALLOWED.test(f)), []);
+});
+
+test('German template exemption covers de/ at any depth', () => {
+  assert.ok(GERMAN_ALLOWED.test('templates/de/x'));
+  assert.ok(GERMAN_ALLOWED.test('plugins/b/templates/a/de/x'));
+  assert.ok(!GERMAN_ALLOWED.test('templates/a/x'));
 });
