@@ -6,14 +6,14 @@ import { gitResult } from '../lib/git.mjs';
 import { isSecretFile, scanLine } from '../lib/secrets.mjs';
 
 const COMMIT_CALL = /\bgit\b[^\n;|&]*\bcommit\b/;
-// `-a`, `--all` or a combined short flag such as `-am` / `-va`, after the commit word.
-const ALL_FLAG = /(?:^|\s)(?:--all|-[A-Za-z]*a[A-Za-z]*)(?=\s|$)/;
 const MAX_FINDINGS = 10;
 // Stable output: no quoting of non-ASCII names, no lock files, plain prefixes, no external diff drivers.
 const BASE = [
   '--no-optional-locks', '-c', 'core.quotePath=false', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false',
 ];
-const DIFF = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U0', '--diff-filter=ACMR'];
+// --text: UTF-16, NUL bytes and -diff/binary attributes must not hide content.
+// --diff-filter=d: everything except deletions (type changes included).
+const DIFF = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-relative', '-U0', '--diff-filter=d'];
 
 const unreadable = () => ({ deny: 'buildorder: the staged changes could not be read, so this commit was blocked. Try again.' });
 
@@ -29,7 +29,7 @@ function addedLines(diff) {
       inHunk = false;
       file = null;
     } else if (!inHunk && text.startsWith('+++ ')) {
-      const name = text.slice(4);
+      const name = text.slice(4).replace(/\t$/, ''); // git adds a TAB after names with spaces
       file = name === '/dev/null' ? null : name.replace(/^"(.*)"$/, '$1').replace(/^b\//, '');
     } else if (text.startsWith('@@')) {
       const m = /^@@ -\S+ \+(\d+)/.exec(text);
@@ -52,8 +52,9 @@ export default function secretGuard(input, { startPath, startUnclear, startHint 
   const command = input?.tool_input?.command;
   if (typeof command !== 'string' || !COMMIT_CALL.test(command)) return null;
 
-  const all = ALL_FLAG.test(command.slice(command.search(/\bcommit\b/)));
-  const passes = all ? [['--cached'], []] : [['--cached']];
+  // A commit may take working-tree content (-a, pathspecs, --only, --include), so the unstaged
+  // changes of tracked files are checked on every commit, besides the index.
+  const passes = [['--cached'], []];
   const findings = [];
   const seenFiles = new Set();
 
@@ -66,10 +67,10 @@ export default function secretGuard(input, { startPath, startUnclear, startHint 
         findings.push(`${name} is a secret file (never commit it)`);
       }
     }
-    const diffRes = gitResult(startPath, [...BASE, ...DIFF, ...scope]);
+    const diffRes = gitResult(startPath, [...BASE, ...DIFF, '--text', ...scope]);
     if (!diffRes.ok) return unreadable();
     for (const { file, line, text } of addedLines(diffRes.stdout)) {
-      const hit = scanLine(text);
+      const hit = scanLine(text.replaceAll('\0', '')); // UTF-16 text has NUL bytes between characters
       if (hit) findings.push(`${file}:${line} ${hit.label} ${hit.masked}`);
     }
   }
@@ -78,7 +79,7 @@ export default function secretGuard(input, { startPath, startUnclear, startHint 
   const shown = findings.slice(0, MAX_FINDINGS);
   const more = findings.length - shown.length;
   const lines = [
-    'buildorder: possible secrets in this commit, so it was blocked:',
+    'buildorder: possible secrets in the staged or unstaged changes of this commit, so it was blocked:',
     ...shown.map((f) => `- ${f}`),
     ...(more > 0 ? [`- and ${more} more`] : []),
     'Remove them or move them to an environment variable or a gitignored file, then commit again.',

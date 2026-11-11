@@ -1,8 +1,8 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanup, commitAll, gitIn, write } from '../helpers/cli.mjs';
+import { cleanup, commitAll, gitIn, tempDir, write } from '../helpers/cli.mjs';
 import { runHook } from '../helpers/hooks.mjs';
 import { fakeSecret, gitInit, makeWorkspace } from '../helpers/workspace.mjs';
 
@@ -98,26 +98,50 @@ test('a leading cd decides the repo', () => {
   assertDeny(commit('cd app && git commit -m x', { cwd: root }));
 });
 
-test('commit -a, -am and --all also check unstaged changes of tracked files', () => {
+
+test('unstaged changes of tracked files are checked on every commit (-a, -am, pathspec, plain)', () => {
   const root = makeWorkspace();
   const app = join(root, 'app');
   write(app, { 'a.js': 'const k = 1;\n' });
   commitAll(app);
   write(app, { 'a.js': awsLine() });
-  assertSilent(commit('git commit -m x', { cwd: app }));
-  for (const flags of ['-a -m x', '-am x', '--all -m x', '-va']) {
-    assert.match(assertDeny(commit(`git commit ${flags}`, { cwd: app })), /a\.js:1 AWS Access Key/, flags);
+  for (const args of ['-m x', '-a -m x', '-am x', '--all -m x', '-va', 'a.js -m x', '--only a.js -m x', '-i a.js -m x']) {
+    const text = assertDeny(commit(`git commit ${args}`, { cwd: app }));
+    assert.match(text, /a\.js:1 AWS Access Key/, args);
+    assert.match(text, /staged or unstaged/, args);
   }
 });
 
-test('commit -a also catches a tracked .env that is modified', () => {
+test('a tracked .env that is modified is caught', () => {
   const root = makeWorkspace();
   const app = join(root, 'app');
   write(app, { '.env': 'A=1\n' });
   commitAll(app);
   write(app, { '.env': 'A=2\n' });
-  assertSilent(commit('git commit -m x', { cwd: app }));
   assert.match(assertDeny(commit('git commit -am x', { cwd: app })), /\.env/);
+});
+
+test('scans UTF-16 files and files marked -diff in .gitattributes', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  const body = awsLine();
+  writeFileSync(join(app, 'u16.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(body, 'utf16le')]));
+  write(app, { '.gitattributes': '*.dat -diff\n', 'b.dat': body });
+  gitIn(app, 'add', '-A');
+  const text = assertDeny(commit('git commit -m x', { cwd: app }));
+  assert.match(text, /b\.dat:1 AWS Access Key/);
+  assert.match(text, /u16\.txt:\d+ AWS Access Key/);
+});
+
+test('diff.relative in the user config does not hide changes outside the folder', () => {
+  const { app } = staged({ 'other/a.js': awsLine(), 'sub/b.js': 'const k = 1;\n' });
+  const env = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.relative', GIT_CONFIG_VALUE_0: 'true' };
+  assert.match(assertDeny(commit('git commit -m x', { cwd: join(app, 'sub'), env })), /other\/a\.js:1 AWS/);
+});
+
+test('a finding in a file whose name has a space is reported cleanly', () => {
+  const { app } = staged({ 'my dir/a b.js': awsLine() });
+  assert.match(assertDeny(commit('git commit -m x', { cwd: app })), /- my dir\/a b\.js:1 AWS Access Key AKIA\.\.\.\n/);
 });
 
 test('started in repo: cwd and CLAUDE_PROJECT_DIR are the repo, still denies', () => {
@@ -127,9 +151,7 @@ test('started in repo: cwd and CLAUDE_PROJECT_DIR are the repo, still denies', (
 
 test('repo outside any workspace is silent', () => {
   const root = makeWorkspace();
-  const other = join(root, '..', 'elsewhere-no-ws');
-  mkdirSync(other, { recursive: true });
-  gitInit(other);
+  const other = gitInit(tempDir('other'));
   write(other, { 'a.js': awsLine() });
   gitIn(other, 'add', '-A');
   assertSilent(commit('git commit -m x', { cwd: other }));
