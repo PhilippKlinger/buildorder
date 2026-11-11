@@ -35,6 +35,11 @@ jobs:
       - name: Run tests
         shell: bash
         run: node --test "tests/**/*.test.mjs"
+      - name: Run hook timing test (AK-5)
+        shell: bash
+        env:
+          BUILDORDER_TIMING: '1'
+        run: node --test --test-concurrency=1 tests/hooks/timing.test.mjs
 
   validate:
     runs-on: ubuntu-latest
