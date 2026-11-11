@@ -1,11 +1,11 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { nest } from '../../plugins/buildorder/lib/nest.mjs';
 import { repoRoot } from '../helpers/repo.mjs';
-import { cleanup, cli, codeRepo, fakeHome, gitIn, tmp, write } from '../helpers/cli.mjs';
+import { cleanup, cli, codeRepo, fakeHome, gitIn, tempDir, tmp, write } from '../helpers/cli.mjs';
 
 after(cleanup);
 
@@ -13,7 +13,8 @@ const CASE_INSENSITIVE = process.platform === 'win32' || process.platform === 'd
 const angular = JSON.stringify({ dependencies: { '@angular/core': '^20' } });
 const sorted = (dir) => readdirSync(dir).sort();
 const status = (cwd) => gitIn(cwd, '--no-optional-locks', 'status', '--porcelain', '--ignored');
-const gitPath = (p) => p.replaceAll('\\', '/');
+// A backslash separates paths only on Windows; on POSIX it is a valid name character.
+const gitPath = (p) => (process.platform === 'win32' ? p.replaceAll('\\', '/') : p);
 
 /** `nest` through the CLI; every outcome, refusals included, exits 0 with JSON. */
 function runNest(...args) {
@@ -65,7 +66,8 @@ test('moves everything and keeps HEAD and status', () => {
 test('custom name, refuses an existing one', () => {
   const dir = codeRepo('named');
   const entries = sorted(dir);
-  for (const name of ['src', '../escape', 'a/b', '..', '', 'ends with dot.', 'ends with space ']) {
+  const devices = ['CON', 'nul.txt', 'Com1', 'lpt9.log', 'aux'];
+  for (const name of ['src', '../escape', 'a/b', '..', '', 'ends with dot.', 'ends with space ', ...devices]) {
     const out = runNest(dir, name);
     assert.equal(out.ok, false, `'${name}' is refused`);
     assert.ok(out.reason, name);
@@ -74,6 +76,7 @@ test('custom name, refuses an existing one', () => {
   }
   assert.match(runNest(dir, 'src').reason, /exists/);
   if (CASE_INSENSITIVE) assert.match(runNest(dir, 'SRC').reason, /exists/);
+  for (const name of devices) assert.match(runNest(dir, name).reason, /reserved device name/, name);
 
   const out = runNest(dir, 'portfolio');
   assert.equal(out.ok, true, out.reason);
@@ -137,36 +140,64 @@ test('refuses non-repos and broken git paths', () => {
   assert.deepEqual(sorted(gitFile), ['.git', 'angular.json', 'package.json']);
 });
 
+test('refuses while a staging folder from an earlier run exists', () => {
+  const dir = codeRepo('leftover');
+  write(dir, { '.buildorder-nest-123/x.txt': 'from a killed run\n' });
+  const entries = sorted(dir);
+  const out = runNest(dir);
+  assert.equal(out.ok, false);
+  assert.ok(out.reason.includes(join(dir, '.buildorder-nest-123')), out.reason);
+  assert.match(out.reason, /move its contents back/);
+  assert.deepEqual(sorted(dir), entries);
+});
+
 // git's own test switch makes every repo look foreign-owned, so dubious ownership needs no second account.
 // GIT_CONFIG_GLOBAL points the global config at a file the test controls.
-const foreignOwner = (globalConfig) => ({ GIT_TEST_ASSUME_DIFFERENT_OWNER: '1', GIT_CONFIG_GLOBAL: globalConfig });
+// GIT_CONFIG_NOSYSTEM keeps a machine-wide safe.directory entry (such as `*`) out of the test.
+const foreignOwner = (globalConfig) => ({
+  GIT_TEST_ASSUME_DIFFERENT_OWNER: '1', GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1',
+});
+
+/** A code repo in a folder named `name`, released through safe.directory for its current real path only. */
+function foreignRepo(label, name) {
+  const dir = codeRepo(null, undefined, { dir: join(tempDir(label), name) });
+  const cfg = join(dirname(dir), 'global.gitconfig');
+  // git compares its real path (macOS /private/var, long Windows names), so the entry uses it too.
+  const entry = `[safe]\n\tdirectory = ${gitPath(realpathSync.native(dir))}\n`;
+  writeFileSync(cfg, entry);
+  return { dir, cfg, entry };
+}
 
 test('retries with safe.directory and reports the command', () => {
-  const dir = codeRepo('foreign owner');
-  const cfg = join(dirname(dir), 'global.gitconfig');
-  const entry = `[safe]\n\tdirectory = ${gitPath(dir)}\n`; // released for the old path only
-  writeFileSync(cfg, entry);
-  const r = cli('nest', dir, { env: foreignOwner(cfg) });
+  // `$` in the path: the command must not let a shell expand it.
+  const { dir, cfg, entry } = foreignRepo('foreign owner', `price ${'$'}HOME`);
+  const r = cli('nest', dir, 'app', { env: foreignOwner(cfg) });
   assert.equal(r.status, 0, r.stderr);
   const out = r.json;
   assert.equal(out.ok, true, out.reason);
   assert.equal(out.headUnchanged, true);
   assert.equal(out.statusUnchanged, true);
-  const repo = gitPath(join(dir, 'target dir'));
-  assert.deepEqual(out.safeDirectory, { path: repo, command: `git config --global --add safe.directory "${repo}"` });
+  const repo = gitPath(realpathSync.native(join(dir, 'app')));
+  assert.deepEqual(out.safeDirectory, { path: repo, command: `git config --global --add safe.directory '${repo}'` });
   assert.equal(readFileSync(cfg, 'utf8'), entry, 'nest never writes the global config');
 
   // Without a one-off entry git really refuses the moved repo, so the retry was needed.
   const env = { ...process.env, ...foreignOwner(cfg), LC_ALL: 'C' };
   for (const k of Object.keys(env)) if (['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'].includes(k.toUpperCase())) delete env[k];
-  const plain = spawnSync('git', ['status'], { cwd: join(dir, 'target dir'), env, encoding: 'utf8' });
+  const plain = spawnSync('git', ['status'], { cwd: join(dir, 'app'), env, encoding: 'utf8' });
   assert.notEqual(plain.status, 0);
   assert.match(plain.stderr, /dubious ownership/);
+
+  // A single quote cannot be quoted the same way for every shell: the path is reported, the command left out.
+  const quoted = foreignRepo('foreign quote', "it's here");
+  const q = cli('nest', quoted.dir, 'app', { env: foreignOwner(quoted.cfg) });
+  assert.equal(q.status, 0, q.stderr);
+  assert.equal(q.json.ok, true, q.json.reason);
+  assert.deepEqual(q.json.safeDirectory, { path: gitPath(realpathSync.native(join(quoted.dir, 'app'))) });
 });
 
 test('refuses when git cannot read the repo', () => {
-  const dir = codeRepo('no safe entry');
-  const cfg = join(dirname(dir), 'global.gitconfig');
+  const { dir, cfg } = foreignRepo('no safe entry', 'target dir');
   writeFileSync(cfg, '');
   const entries = sorted(dir);
   const r = cli('nest', dir, { env: foreignOwner(cfg) });
@@ -218,6 +249,38 @@ test('rolls back every move when one fails, and retries a brief lock', () => {
   assert.equal(status(join(dir, 'app')), before);
 });
 
+test('a rename that fails after it moved the entry is still rolled back', () => {
+  // Forward: `notes.txt` reaches the staging folder, then the rename reports a lock; the retry finds no source.
+  const dir = codeRepo('throws after move');
+  write(dir, { 'notes.txt': '' });
+  const entries = sorted(dir);
+  const before = status(dir);
+  const forward = nest(dir, undefined, {
+    rename: (from, to) => {
+      renameSync(from, to);
+      if (basename(from) === 'notes.txt' && inStaging(to)) throw locked('EBUSY');
+    },
+  });
+  assert.equal(forward.ok, false);
+  assert.match(forward.reason, /moving 'notes.txt' failed \(ENOENT\); rolled back, nothing changed/);
+  assert.deepEqual(sorted(dir), entries);
+  assert.equal(status(dir), before);
+
+  // Back: `package.json` returns, then the rename reports a lock; the check finds it in place, not stuck.
+  const back = nest(dir, undefined, {
+    rename: (from, to) => {
+      if (basename(from) === 'src' && inStaging(to)) throw locked('EPERM');
+      renameSync(from, to);
+      if (basename(from) === 'package.json' && inStaging(from)) throw locked('EPERM');
+    },
+  });
+  assert.equal(back.ok, false);
+  assert.match(back.reason, /rolled back, nothing changed/);
+  assert.equal(back.moved, 0);
+  assert.deepEqual(sorted(dir), entries);
+  assert.equal(status(dir), before);
+});
+
 test('reports entries left in the staging folder when the rollback fails too', () => {
   const dir = codeRepo('stuck');
   const out = nest(dir, undefined, {
@@ -232,6 +295,78 @@ test('reports entries left in the staging folder when the rollback fails too', (
   assert.match(out.reason, /rollback is incomplete/);
   assert.ok(out.reason.includes(staging), out.reason);
   assert.match(out.reason, /package\.json/);
+  assert.equal(out.moved, 1, 'one entry is not back in place');
   assert.ok(existsSync(join(staging, 'package.json')), 'the stuck entry is where the reason says');
   assert.ok(existsSync(join(dir, '.git')), 'the other entries returned');
+});
+
+test('never overwrites an entry that appeared during the move', () => {
+  // `package.json` is recreated in the folder while the move runs: the rollback keeps both versions.
+  const dir = codeRepo('recreated');
+  const original = readFileSync(join(dir, 'package.json'), 'utf8');
+  const out = nest(dir, undefined, {
+    rename: (from, to) => {
+      if (basename(from) === 'src' && inStaging(to)) {
+        writeFileSync(join(dir, 'package.json'), 'newer\n');
+        throw locked('EPERM');
+      }
+      return renameSync(from, to);
+    },
+  });
+  const staging = join(dir, `.buildorder-nest-${process.pid}`);
+  assert.equal(out.ok, false);
+  assert.match(out.reason, /rollback is incomplete/);
+  const both = `both versions exist: ${join(dir, 'package.json')} and ${join(staging, 'package.json')}`;
+  assert.ok(out.reason.includes(both), out.reason);
+  assert.equal(out.moved, 1);
+  assert.equal(readFileSync(join(dir, 'package.json'), 'utf8'), 'newer\n', 'the newer file is kept');
+  assert.equal(readFileSync(join(staging, 'package.json'), 'utf8'), original, 'the repo file is kept');
+
+  // The final name appears during the move (an empty folder, which a POSIX rename would replace).
+  const late = codeRepo('final name taken');
+  const entries = sorted(late);
+  const taken = nest(late, 'app', {
+    rename: (from, to) => {
+      renameSync(from, to);
+      if (basename(from) === 'src' && inStaging(to)) mkdirSync(join(late, 'app'));
+    },
+  });
+  assert.equal(taken.ok, false);
+  assert.match(taken.reason, /moving 'app' failed \(EEXIST\); rolled back, nothing changed/);
+  assert.deepEqual(sorted(late), [...entries, 'app'].sort());
+  assert.deepEqual(readdirSync(join(late, 'app')), [], 'the other folder stays untouched');
+});
+
+test('a status that differs after the move leaves the files moved and says so', () => {
+  const dir = codeRepo('late write');
+  const out = nest(dir, 'app', {
+    rename: (from, to) => {
+      renameSync(from, to);
+      if (basename(to) === 'app') writeFileSync(join(to, 'late.txt'), ''); // e.g. a dev server writing
+    },
+  });
+  const repo = join(dir, 'app');
+  assert.equal(out.ok, false);
+  assert.equal(out.headUnchanged, true);
+  assert.equal(out.statusUnchanged, false);
+  assert.ok(out.reason.includes(`the files now live in ${repo} and nothing was undone`), out.reason);
+  assert.match(out.reason, /git status differs after the move/);
+  assert.deepEqual(readdirSync(dir), ['app']);
+  assert.ok(existsSync(join(repo, '.git')));
+});
+
+test('warns about an entry that appeared outside the repo during the move', () => {
+  const dir = codeRepo('stray');
+  const out = nest(dir, 'app', {
+    rename: (from, to) => {
+      renameSync(from, to);
+      if (basename(to) === 'app') writeFileSync(join(dir, 'stray.log'), '');
+    },
+  });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.statusUnchanged, true);
+  assert.equal(out.warnings.length, 1);
+  assert.match(out.warnings[0], /stray\.log/);
+  assert.ok(out.warnings[0].includes(join(dir, 'app')), out.warnings[0]);
+  assert.deepEqual(sorted(dir), ['app', 'stray.log']);
 });
