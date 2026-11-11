@@ -138,6 +138,11 @@ test('pyproject: poetry-style django = "^5.0" counts', () => {
 test('pyproject: comments are ignored, a hash inside quotes is not a comment', () => {
   check({ 'pyproject.toml': '[project]\ndependencies = [\n  # "django"\n  "requests", # psycopg\n]\n' }, out(['python']));
 });
+test('pyproject: a hash inside a quoted dependency is kept', () => {
+  // Cutting at the quoted '#' would leave an unterminated string and lose psycopg2.
+  const toml = ['[project]', 'dependencies = [', '  "psycopg2 # driver", # real comment', ']', ''].join('\n');
+  check({ 'pyproject.toml': toml }, out(['python', 'postgres']));
+});
 test('requirements: inline comments are stripped', () => {
   check({ 'requirements.txt': 'requests  # psycopg later\n' }, out(['python']));
   check({ 'requirements.txt': 'psycopg2  # driver\n' }, out(['python', 'postgres']));

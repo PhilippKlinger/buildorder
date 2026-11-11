@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { normalizePath } from '../../plugins/buildorder/lib/paths.mjs';
@@ -70,7 +70,7 @@ test('inherited GIT_DIR does not redirect git away from cwd', () => {
     // Without the strip, --git-dir would report B's .git (an absolute path).
     const gitDir = git(a, ['rev-parse', '--git-dir']);
     assert.equal(gitDir, '.git');
-    assert.equal(normalizePath(git(a, ['rev-parse', '--show-toplevel'])), normalizePath(a));
+    assert.equal(normalizePath(git(a, ['rev-parse', '--show-toplevel'])), normalizePath(realpathSync.native(a)));
   } finally {
     if (saved === undefined) delete process.env.GIT_DIR;
     else process.env.GIT_DIR = saved;
@@ -80,12 +80,17 @@ test('inherited GIT_DIR does not redirect git away from cwd', () => {
 });
 
 test('opts.env wins over the defaults', () => {
-  const dir = tmp();
+  const a = tmp();
+  const b = tmp();
   try {
-    gitResult(dir, ['init', '-q']);
-    const r = gitResult(dir, ['rev-parse', '--git-dir'], { env: { GIT_DIR: join(dir, '.git') } });
+    gitResult(a, ['init', '-q']);
+    gitResult(b, ['init', '-q']);
+    // Ignoring opts.env would make git report A's own relative '.git'.
+    const r = gitResult(a, ['rev-parse', '--git-dir'], { env: { GIT_DIR: join(b, '.git') } });
     assert.equal(r.ok, true);
+    assert.equal(normalizePath(realpathSync.native(r.stdout.trim())), normalizePath(realpathSync.native(join(b, '.git'))));
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(a, { recursive: true, force: true });
+    rmSync(b, { recursive: true, force: true });
   }
 });

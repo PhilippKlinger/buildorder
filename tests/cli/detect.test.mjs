@@ -252,8 +252,8 @@ test('relative paths and forward slashes give the same dir', () => {
   // process.cwd() is the real path (macOS resolves /var to /private/var), so compare real paths.
   const rel = cli('detect', basename(dir), { cwd: dirname(dir) });
   assert.equal(rel.status, 0, rel.stderr);
-  assert.equal(realpathSync(rel.json.dir), realpathSync(dir));
-  assert.equal(realpathSync(cli('detect', { cwd: dir }).json.dir), realpathSync(dir), 'dir defaults to .');
+  assert.equal(realpathSync.native(rel.json.dir), realpathSync.native(dir));
+  assert.equal(realpathSync.native(cli('detect', { cwd: dir }).json.dir), realpathSync.native(dir), 'dir defaults to .');
 });
 
 test('branch, dirty and ahead per repo', () => {
