@@ -1,0 +1,165 @@
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { cleanup, commitAll, gitIn, write } from '../helpers/cli.mjs';
+import { runHook } from '../helpers/hooks.mjs';
+import { fakeSecret, gitInit, makeWorkspace } from '../helpers/workspace.mjs';
+
+after(cleanup);
+
+function commit(command, { cwd, env } = {}) {
+  const input = { session_id: 's1', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } };
+  if (cwd !== undefined) input.cwd = cwd;
+  return runHook('secret', input, { cwd, env });
+}
+
+function assertDeny(res) {
+  assert.equal(res.json?.hookSpecificOutput?.permissionDecision, 'deny', res.stdout);
+  return res.json.hookSpecificOutput.permissionDecisionReason;
+}
+
+const assertSilent = (res) => assert.equal(res.stdout, '');
+
+/** A workspace with a repo `app/` holding the given files, staged. */
+function staged(files) {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  write(app, files);
+  gitIn(app, 'add', '-A');
+  return { root, app };
+}
+
+const awsLine = () => `const k = '${fakeSecret('aws')}';\n`;
+
+test('denies a staged AWS key and masks it', () => {
+  const key = fakeSecret('aws');
+  const { app } = staged({ 'src/a.js': `const a = 1;\nconst b = 2;\nconst k = '${key}';\n` });
+  const text = assertDeny(commit('git commit -m x', { cwd: app }));
+  assert.match(text, /src\/a\.js:3 AWS Access Key AKIA\.\.\./);
+  assert.ok(!text.includes(key));
+});
+
+test('denies a staged .env file by name', () => {
+  const { app } = staged({ '.env': 'PORT=3000\n' });
+  assert.match(assertDeny(commit('git commit -m x', { cwd: app })), /\.env/);
+});
+
+test('denies a Django SECRET_KEY', () => {
+  const { app } = staged({ 'settings.py': `SECRET_KEY = '${fakeSecret('django')}'\n` });
+  assert.match(assertDeny(commit('git commit -m x', { cwd: app })), /settings\.py:1 Django SECRET_KEY/);
+});
+
+test('denies a quoted JSON password', () => {
+  const { app } = staged({ 'config.json': `{\n  "password": "${fakeSecret('password')}"\n}\n` });
+  assert.match(assertDeny(commit('git commit -m x', { cwd: app })), /config\.json:2 Password/);
+});
+
+test('allows clean code, placeholders and environment lookups', () => {
+  const { app } = staged({
+    'a.py': "SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')\npassword = \"change-me-please\"\n",
+    'b.js': 'const t = process.env.GITHUB_TOKEN;\nconsole.log("hi");\n',
+  });
+  assertSilent(commit('git commit -m x', { cwd: app }));
+});
+
+test('allows .env.example', () => {
+  const { app } = staged({ '.env.example': 'PORT=3000\n' });
+  assertSilent(commit('git commit -m x', { cwd: app }));
+});
+
+test('removing a secret line is not a finding, only added lines count', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  write(app, { 'a.js': awsLine() });
+  commitAll(app);
+  write(app, { 'a.js': 'const k = process.env.K;\n' });
+  gitIn(app, 'add', '-A');
+  assertSilent(commit('git commit -m x', { cwd: app }));
+});
+
+test('ignores other git commands', () => {
+  const { app } = staged({ 'a.js': awsLine() });
+  assertSilent(commit('git status', { cwd: app }));
+  assertSilent(commit('git add -A', { cwd: app }));
+});
+
+test('git -C with a path containing spaces', () => {
+  const root = makeWorkspace({ repos: [{ path: 'my app' }] });
+  const dir = join(root, 'my app');
+  gitInit(dir);
+  write(dir, { 'a.js': awsLine() });
+  gitIn(dir, 'add', '-A');
+  assertDeny(commit(`git -C "${dir}" commit -m x`, { cwd: root }));
+});
+
+test('a leading cd decides the repo', () => {
+  const { root } = staged({ 'a.js': awsLine() });
+  assertDeny(commit('cd app && git commit -m x', { cwd: root }));
+});
+
+test('commit -a, -am and --all also check unstaged changes of tracked files', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  write(app, { 'a.js': 'const k = 1;\n' });
+  commitAll(app);
+  write(app, { 'a.js': awsLine() });
+  assertSilent(commit('git commit -m x', { cwd: app }));
+  for (const flags of ['-a -m x', '-am x', '--all -m x', '-va']) {
+    assert.match(assertDeny(commit(`git commit ${flags}`, { cwd: app })), /a\.js:1 AWS Access Key/, flags);
+  }
+});
+
+test('commit -a also catches a tracked .env that is modified', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  write(app, { '.env': 'A=1\n' });
+  commitAll(app);
+  write(app, { '.env': 'A=2\n' });
+  assertSilent(commit('git commit -m x', { cwd: app }));
+  assert.match(assertDeny(commit('git commit -am x', { cwd: app })), /\.env/);
+});
+
+test('started in repo: cwd and CLAUDE_PROJECT_DIR are the repo, still denies', () => {
+  const { app } = staged({ 'a.js': awsLine() });
+  assertDeny(commit('git commit -m x', { cwd: app, env: { CLAUDE_PROJECT_DIR: app } }));
+});
+
+test('repo outside any workspace is silent', () => {
+  const root = makeWorkspace();
+  const other = join(root, '..', 'elsewhere-no-ws');
+  mkdirSync(other, { recursive: true });
+  gitInit(other);
+  write(other, { 'a.js': awsLine() });
+  gitIn(other, 'add', '-A');
+  assertSilent(commit('git commit -m x', { cwd: other }));
+});
+
+test('an unclear target is denied with the hint', () => {
+  const { app } = staged({ 'a.js': 'const k = 1;\n' });
+  const text = assertDeny(commit('GIT_DIR=x git commit -m x', { cwd: app }));
+  assert.match(text, /git -C <path> commit -m/);
+  assert.match(text, /-F <file>/);
+});
+
+test('fails closed when the diff cannot be read', () => {
+  const root = makeWorkspace();
+  const plain = join(root, 'plain');
+  mkdirSync(plain, { recursive: true });
+  assert.match(assertDeny(commit('git commit -m x', { cwd: plain })), /could not be read/);
+});
+
+test('reports at most 10 findings and says how many were left out', () => {
+  const lines = Array.from({ length: 13 }, (_, i) => `const k${i} = '${fakeSecret('aws')}';`).join('\n');
+  const { app } = staged({ 'a.js': lines + '\n' });
+  const text = assertDeny(commit('git commit -m x', { cwd: app }));
+  assert.equal(text.match(/a\.js:\d+ AWS Access Key/g).length, 10);
+  assert.match(text, /3 more/);
+  assert.ok(!text.includes(fakeSecret('aws')));
+});
+
+test('file names with spaces and non-ASCII characters are reported as they are', () => {
+  const dir = 'my dir/' + String.fromCharCode(0xe4);
+  const { app } = staged({ [dir + '/.env']: 'A=1\n' });
+  assert.ok(assertDeny(commit('git commit -m x', { cwd: app })).includes(dir + '/.env'));
+});
