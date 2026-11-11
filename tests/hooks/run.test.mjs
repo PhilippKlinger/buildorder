@@ -208,6 +208,15 @@ test('secret starts at the folder the git command runs in', () => {
   clear('git commit -m x', app, app);
   clear('git commit -m "fix the git commit hook"', app, app);
   clear('git log --grep commit && git -C app commit -m x', root, app);
+  // The subcommand comes from tokens, so `commit` inside a -C folder does not end the options.
+  write(app, { 'commit-tools/.keep': '', 'my commit dir/.keep': '', 'tools/pre-commit/.keep': '' });
+  clear('git -C ./commit-tools commit -m x', app, join(app, 'commit-tools'));
+  clear('git -C "my commit dir" commit -m x', app, join(app, 'my commit dir'));
+  clear('git -C tools/pre-commit commit -m x', app, join(app, 'tools', 'pre-commit'));
+  clear('cd .git && git status', app, join(app, '.git'));
+  clear('git -c user.name=x commit -m x', app, app);
+  clear('git commit -m "cd docs; git -C elsewhere commit"', app, app);
+  clear('env FOO=1 git -C src commit -m x', app, join(app, 'src'));
   unclear('cd $REPO && git commit -m x', app);
   unclear('cd ~/x && git commit -m x', app);
   unclear('cd $HOME && git -C app commit -m x', root);
@@ -218,6 +227,21 @@ test('secret starts at the folder the git command runs in', () => {
   unclear('git --git-dir=app/.git commit -m x', root);
   unclear('git --work-tree app -C app commit -m x', root);
   unclear('git -C app commit -m x && git commit -m y', root);
+  // Environment or config that sends git to another repo.
+  unclear('GIT_DIR=app/.git git commit -m x', root);
+  unclear('GIT_WORK_TREE=app git commit -m x', root);
+  unclear('GIT_INDEX_FILE=/tmp/index git commit -m x', root);
+  unclear('env GIT_DIR=app/.git git commit -m x', root);
+  unclear('export GIT_DIR=app/.git; git commit -m x', root);
+  unclear("$env:GIT_DIR='app/.git'; git commit -m x", root);
+  unclear('$env:GIT_WORK_TREE = "app"; git commit -m x', root);
+  unclear('git -c core.worktree=app commit -m x', root);
+  unclear('git -c core.bare=false -C app commit -m x', root);
+  unclear('git -c "Core.WorkTree=app" commit -m x', root);
+  // Other unclear shapes.
+  unclear('env -C app git commit -m x', root);
+  unclear('(cd app; git commit -m x)', root);
+  unclear('git commit -m "open quote', root);
   assert.equal(report(`echo "${app}" && git commit -m x`), null);
   for (const command of [undefined, 42]) assert.equal(report(command), null);
 });
@@ -251,6 +275,7 @@ const BROKEN = {
   'invalid result': 'export default function run() { return { unknown: "secret value" }; }\n',
   'empty deny': 'export default function run() { return { deny: "" }; }\n',
   'string result': 'export default function run() { return "secret value"; }\n',
+  'undefined result': 'export default function run() {}\n',
 };
 const GUARDS = [['boundary', 'boundary-guard'], ['secret', 'secret-guard']];
 const guardFailed = (entry) => `buildorder: the ${entry} check could not run, so this action was blocked. ` +

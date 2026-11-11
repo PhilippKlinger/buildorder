@@ -26,59 +26,116 @@ function fileStart(input) {
   return typeof file === 'string' && file !== '' ? { path: resolve(cwdOf(input), file), unclear: false } : null;
 }
 
-// One shell word: a quoted string or a run of characters without spaces, quotes or separators.
-const WORD = String.raw`("[^"]*"|'[^']*'|[^\s;&|"']+)`;
-const WORDS = new RegExp(WORD, 'g');
-// Any command that changes the folder, at the start or after a separator.
-const DIR_CHANGE = /(?:^|[\n;&|({])\s*(?:cd|chdir|pushd|popd|Set-Location|sl|Push-Location|Pop-Location)(?=[\s;&|)]|$)/gi;
-// The one form that is read: a leading `cd|pushd|Set-Location|Push-Location [-Path|-LiteralPath] <dir>` and `&&` or `;`.
-const LEADING_CD = new RegExp(
-  String.raw`^\s*(?:cd|pushd|Set-Location|Push-Location)\s+(?:-(?:Literal)?Path\s+)?${WORD}\s*(?:&&|;)`, 'i',
-);
-// A git call up to its first `commit`, within one simple command.
-const GIT_CALL = /\bgit\b([^\n;|&]*?)\bcommit\b/g;
+// A shell word (quoted and unquoted parts glued together) or a separator between simple commands.
+const TOKENS = /((?:"[^"]*"|'[^']*'|[^\s;&|()"'])+)|(&&|\|\||[;&|()\n])/g;
+const PARTS = /"([^"]*)"|'([^']*)'|([^"']+)/g;
+// Commands that change the folder (compared in lower case).
+const DIR_CMDS = new Set(['cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl', 'push-location', 'pop-location']);
+// The folder change that is read: `cd|pushd|Set-Location|Push-Location [-Path|-LiteralPath] <dir>`.
+const READ_CMDS = new Set(['cd', 'pushd', 'set-location', 'push-location']);
+// Words that may run git without changing the folder themselves.
+const WRAPPERS = new Set(['env', 'command', 'exec', 'time', 'nohup', 'nice', 'sudo']);
+const GIT_EXE = /^(?:.*[\\/])?git(?:\.exe)?$/i;
 // Global git options that do not change which repo git works in.
 const NEUTRAL = new Set([
   '-p', '--paginate', '-P', '--no-pager', '--no-optional-locks', '--no-replace-objects',
   '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs', '--no-advice',
 ]);
+// Environment that sends git to another repo, set inline, exported or through $env: anywhere in the command.
+const REDIRECT_NAMES = 'GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR|GIT_OBJECT_DIRECTORY|' +
+  'GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT';
+const REDIRECT_ENV = new RegExp(String.raw`(?:^|[^\w$:])(?:${REDIRECT_NAMES})\s*=|\benv:(?:${REDIRECT_NAMES})\b`, 'i');
+// `-c` keys that move the work tree.
+const REDIRECT_CONFIG = /^core\.(?:worktree|bare)$/i;
 
 /**
  * The folder a shell word names, or null when the shell would change it (variables, ~, escapes).
  * On Windows a Git Bash path `/e/dir` (or `/e`) becomes `e:/dir`.
  */
 function literalDir(word) {
-  let dir;
-  if (word.startsWith("'")) dir = word.slice(1, -1);
-  else {
-    dir = word.startsWith('"') ? word.slice(1, -1) : word;
-    if (/[$`%]/.test(dir) || dir.endsWith('\\')) return null;
-  }
-  if (dir === '' || /^[~-]/.test(dir)) return null;
-  return IS_WINDOWS ? dir.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/') : dir;
+  const { text, literal } = unquote(word);
+  if (!literal || text === '' || /^[~-]/.test(text)) return null;
+  return IS_WINDOWS ? text.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/') : text;
 }
 
 /**
- * The `-C` folders of one git call before its subcommand: `{ dirs }`, `{ unclear: true }` when an
- * option could change the repo or a folder is not literal, or null when the subcommand is not commit.
+ * The text of a shell word without its quotes. `literal` is false when the shell would change it:
+ * `$`, backtick or `%` outside single quotes, or an unquoted part ending in a backslash (escape).
  */
-function gitDirs(prefix) {
-  const tokens = [...prefix.matchAll(WORDS)].map((m) => m[1]);
-  const dirs = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token === '-C' || token === '-c') {
-      const value = tokens[++i];
-      if (value === undefined) return { unclear: true };
-      if (token === '-c') continue;
-      const dir = literalDir(value);
-      if (dir === null) return { unclear: true };
-      dirs.push(dir);
-    } else if (!NEUTRAL.has(token)) {
-      return token.startsWith('-') ? { unclear: true } : null;
+function unquote(word) {
+  let text = '';
+  let literal = true;
+  for (const [, double, single, bare] of word.matchAll(PARTS)) {
+    if (single !== undefined) {
+      text += single;
+      continue;
+    }
+    const part = double ?? bare;
+    if (/[$`%]/.test(part) || (bare !== undefined && bare.endsWith('\\'))) literal = false;
+    text += part;
+  }
+  return { text, literal };
+}
+
+/** The simple commands of `command` as `{ words, sep }` (sep: the separator after it), or null when a quote is open. */
+function simpleCommands(command) {
+  const list = [{ words: [], sep: '' }];
+  let seen = 0;
+  for (const m of command.matchAll(TOKENS)) {
+    if (command.slice(seen, m.index).trim() !== '') return null; // text no token covers: an open quote
+    seen = m.index + m[0].length;
+    if (m[1] !== undefined) list.at(-1).words.push(m[1]);
+    else {
+      list.at(-1).sep = m[2];
+      list.push({ words: [], sep: '' });
     }
   }
-  return { dirs };
+  if (command.slice(seen).trim() !== '') return null;
+  return list.filter((c) => c.words.length > 0 || c.sep !== '');
+}
+
+/**
+ * The `-C` folders of one simple command when it is a git commit: `{ dirs }`; `{ unclear: true }` when
+ * the repo cannot be read literally; null when it is no git commit (another subcommand, or git is
+ * only an argument as in `echo git commit`).
+ */
+function commitDirs(words) {
+  const text = (w) => unquote(w).text;
+  const at = words.findIndex((w) => GIT_EXE.test(text(w)));
+  if (at < 0) return null;
+  // Before git: assignments and wrappers keep the folder; after an option (`env -C x`) anything may.
+  let unsure = false;
+  for (const w of words.slice(0, at)) {
+    const t = text(w);
+    if (t.startsWith('-')) unsure = true;
+    else if (!unsure && !/^[A-Za-z_]\w*=/.test(t) && !WRAPPERS.has(t)) return null;
+  }
+  const rest = words.slice(at + 1);
+  const dirs = [];
+  for (let i = 0; i < rest.length; i++) {
+    const t = text(rest[i]);
+    if (t === '-C' || t === '-c') {
+      const value = rest[++i];
+      if (value === undefined) return null;
+      if (t === '-C') {
+        const dir = literalDir(value);
+        if (dir === null) unsure = true;
+        else dirs.push(dir);
+      } else {
+        const key = text(value).split('=')[0].trim();
+        if (/[$`]/.test(key) || REDIRECT_CONFIG.test(key)) unsure = true;
+      }
+    } else if (NEUTRAL.has(t)) {
+      continue;
+    } else if (t.startsWith('-')) {
+      // An unknown option may take a value, so any later `commit` may be the subcommand.
+      return rest.slice(i + 1).some((w) => text(w) === 'commit') ? { unclear: true } : null;
+    } else {
+      if (t !== 'commit') return null;
+      return unsure ? { unclear: true } : { dirs };
+    }
+  }
+  return null;
 }
 
 /**
@@ -92,18 +149,26 @@ function gitStart(input) {
   if (typeof command !== 'string') return null;
   const cwd = cwdOf(input);
   const unclear = { path: cwd, unclear: true };
+  if (REDIRECT_ENV.test(command)) return unclear;
+  const commands = simpleCommands(command);
+  if (commands === null) return unclear;
   let base = cwd;
-  const changes = command.match(DIR_CHANGE)?.length ?? 0;
-  if (changes > 1) return unclear;
-  if (changes === 1) {
-    const word = command.match(LEADING_CD)?.[1];
-    const dir = word === undefined ? null : literalDir(word);
-    if (dir === null) return unclear;
+  const changes = commands.flatMap((c, i) =>
+    c.words.flatMap((w, j) => (DIR_CMDS.has(unquote(w).text.toLowerCase()) ? [[i, j]] : [])));
+  if (changes.length > 1) return unclear;
+  if (changes.length === 1) {
+    // Only `<cmd> [-Path|-LiteralPath] <dir>` as the first simple command, then `&&`, `;` or a newline.
+    const [first] = commands;
+    const words = first.words.map((w) => unquote(w).text.toLowerCase());
+    const flag = words.length === 3 && (words[1] === '-path' || words[1] === '-literalpath');
+    const dir = first.words.length === 2 || flag ? literalDir(first.words.at(-1)) : null;
+    const read = changes[0][0] === 0 && changes[0][1] === 0 && READ_CMDS.has(words[0]);
+    if (!read || !['&&', ';', '\n'].includes(first.sep) || dir === null) return unclear;
     base = resolve(cwd, dir);
   }
   const targets = new Set();
-  for (const m of command.matchAll(GIT_CALL)) {
-    const call = gitDirs(m[1]);
+  for (const { words } of commands) {
+    const call = commitDirs(words);
     if (call === null) continue;
     if (call.unclear) return unclear;
     targets.add(call.dirs.reduce((dir, next) => resolve(dir, next), base));
@@ -205,8 +270,8 @@ async function main() {
   }
   const { merge, render } = await import('./output.mjs');
   const out = render(entry.event, merge(results), (code) => note(entryName, { code }));
-  // A guard answers with null (allow) or a result that renders; anything else is a failure.
-  if (failClosed && out === '' && results.some((r) => r !== null && r !== undefined)) throw invalidResult();
+  // A guard answers with null (allow) or a result that renders; anything else, undefined included, fails.
+  if (failClosed && out === '' && results.some((r) => r !== null)) throw invalidResult();
   return out;
 }
 
