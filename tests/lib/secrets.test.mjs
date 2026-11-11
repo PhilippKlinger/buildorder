@@ -35,6 +35,18 @@ test('flags quoted keys in JSON and YAML', () => {
   assert.equal(scanLine('"password": "${DB_PASSWORD}"'), null);
 });
 
+test('flags keys with a prefix such as db_password, DB_PASSWORD and client_secret', () => {
+  const pw = fakeSecret('password');
+  for (const line of [
+    `db_password = '${pw}'`,
+    `DB_PASSWORD = "${pw}"`,
+    `client_secret: "${pw}"`,
+    `{"stripe_api_key": "${pw}"}`,
+  ]) assert.equal(scanLine(line)?.label, 'Password/token in code', line);
+  assert.equal(scanLine('DB_PASSWORD = "${DB_PASSWORD}"'), null);
+  assert.equal(scanLine("db_password = os.getenv('DB_PASSWORD')"), null);
+});
+
 test('never returns the full value', () => {
   const hit = scanLine(`key = ${fakeSecret('aws')}`);
   assert.ok(!hit.masked.includes(fakeSecret('aws')));
