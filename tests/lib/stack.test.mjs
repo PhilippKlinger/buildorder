@@ -156,3 +156,12 @@ test('a BOM in package.json does not hide dependencies', () =>
   check({ 'package.json': String.fromCharCode(0xFEFF) + pkg({ react: '1', vite: '1' }) }, out(['react'])));
 test('a BOM in a requirements file does not hide the first line', () =>
   check({ 'requirements.txt': String.fromCharCode(0xFEFF) + 'django\n' }, out(['django'])));
+test('ignore leaves out folders that belong to someone else (nested repos)', () => {
+  const dir = mini({ 'compose.yml': 'x', 'app/package.json': pkg({ vue: '1' }), 'apps/go.mod': 'x' });
+  try {
+    assert.deepEqual(detectStacks(dir, { ignore: ['app'] }), out(['go', 'docker']));
+    assert.deepEqual(detectStacks(dir, { ignore: ['app', 'apps'] }), out(['docker']));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

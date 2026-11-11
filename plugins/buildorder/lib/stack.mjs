@@ -13,7 +13,9 @@ const SUPPORTED = ['angular', 'react', 'django', 'python', 'go', 'docker', 'post
 const UNSUPPORTED = ['vue', 'next', 'astro', 'react-native', 'react', 'flask', 'php', 'node'];
 
 // `compose.yml`, `docker-compose.prod.yaml`, ... but not `composer.yml` or `compose-ci.yml`.
-const COMPOSE = /^(docker-)?compose(\.[\w-]+)?\.ya?ml$/;
+export const COMPOSE = /^(docker-)?compose(\.[\w-]+)?\.ya?ml$/;
+/** `Dockerfile`, `Dockerfile.prod`, `api.dockerfile` (a file name, not a path). */
+export const isDockerfile = (name) => name === 'Dockerfile' || /^Dockerfile\./.test(name) || /\.dockerfile$/i.test(name);
 const REQUIREMENTS = globToRegExp('requirements*.txt');
 const WORKFLOW = /(^|\/)\.github\/workflows\/[^/]+\.ya?ml$/;
 // An image line whose last path segment is exactly `postgres`: optional registry/namespace
@@ -88,9 +90,10 @@ const pyText = (dir, files) => files.map((f) => {
 /**
  * `{ supported, unsupported }`: stacks the build order can plan for, and
  * recognised stacks it cannot (each listed once, in a fixed order).
+ * `ignore` lists `/`-separated folders below `dir` whose files do not count (e.g. nested repos).
  */
-export function detectStacks(dir) {
-  const files = walk(dir, DEPTH, SKIP_DIRS);
+export function detectStacks(dir, { ignore = [] } = {}) {
+  const files = walk(dir, DEPTH, SKIP_DIRS).filter((f) => !ignore.some((p) => f.startsWith(`${p}/`)));
   const named = (test) => files.filter((f) => test(basename(f)));
   const supported = new Set();
   const unsupported = new Set();
@@ -132,7 +135,7 @@ export function detectStacks(dir) {
   // --- Docker and Postgres.
   // Files under a `.github` folder (workflow files) are never compose files.
   const composeFiles = files.filter((f) => COMPOSE.test(basename(f)) && !f.split('/').includes('.github'));
-  const dockerfiles = named((n) => n === 'Dockerfile' || /^Dockerfile\./.test(n) || /\.dockerfile$/i.test(n));
+  const dockerfiles = named(isDockerfile);
   if (composeFiles.length || dockerfiles.length) supported.add('docker');
   const goText = goMod.map((f) => read(dir, f)).join('\n');
   if (composeFiles.some((f) => POSTGRES_IMAGE.test(read(dir, f)))
