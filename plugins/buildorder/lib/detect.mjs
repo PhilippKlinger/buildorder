@@ -189,7 +189,7 @@ export function nestBlockers(root) {
   // Nesting the folder this plugin runs from would move the running script.
   const real = (p) => {
     try {
-      return realpathSync(p);
+      return realpathSync.native(p);
     } catch {
       return resolve(p);
     }

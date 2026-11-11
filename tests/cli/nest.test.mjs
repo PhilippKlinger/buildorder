@@ -143,12 +143,16 @@ test('refuses non-repos and broken git paths', () => {
 test('refuses while a staging folder from an earlier run exists', () => {
   const dir = codeRepo('leftover');
   write(dir, { '.buildorder-nest-123/x.txt': 'from a killed run\n' });
+  // An interrupted run has already moved .git into the staging folder.
+  renameSync(join(dir, '.git'), join(dir, '.buildorder-nest-123', '.git'));
   const entries = sorted(dir);
   const out = runNest(dir);
   assert.equal(out.ok, false);
   assert.ok(out.reason.includes(join(dir, '.buildorder-nest-123')), out.reason);
   assert.match(out.reason, /move its contents back/);
+  assert.equal(out.moved, 0);
   assert.deepEqual(sorted(dir), entries);
+  assert.ok(existsSync(join(dir, '.buildorder-nest-123', '.git')) && existsSync(join(dir, '.buildorder-nest-123', 'x.txt')));
 });
 
 // git's own test switch makes every repo look foreign-owned, so dubious ownership needs no second account.

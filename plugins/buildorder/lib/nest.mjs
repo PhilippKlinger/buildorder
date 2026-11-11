@@ -131,11 +131,22 @@ function rollBack({ root, name, staging, entries, move }) {
  */
 export function nest(dir, repoPath, { rename = renameSync } = {}) {
   const root = resolve(dir);
-  const d = detect(root);
   let name = repoPath ?? null;
   const refuse = (reason, moved = 0) => ({
     ok: false, reason, dir: root, repoPath: name, moved, headUnchanged: null, statusUnchanged: null,
   });
+  // First of all: in an interrupted run the .git sits inside the staging folder, so detect would give a wrong reason.
+  // A staging folder left by a killed or failed run holds repo files; moving it would bury them.
+  let top = [];
+  try {
+    top = readdirSync(root);
+  } catch { /* not a readable folder: detect reports that */ }
+  const leftover = top.find((e) => STAGING.test(e));
+  if (leftover) {
+    return refuse(`an earlier nest left ${join(root, leftover)}; move its contents back into ${root} `
+      + 'and remove it, then retry');
+  }
+  const d = detect(root);
 
   if (d.suggestion !== 'repo-root') {
     return refuse(`nest only applies to a folder that is itself a code repo (detect: ${d.suggestion})`);
@@ -144,12 +155,6 @@ export function nest(dir, repoPath, { rename = renameSync } = {}) {
   name = repoPath ?? proposed;
   if (blockers.length) return refuse(`cannot nest: ${blockers.join('; ')}`);
   const entries = readdirSync(root).sort(); // a fixed order makes failures reproducible
-  // A staging folder left by a killed or failed run holds repo files; moving it would bury them.
-  const leftover = entries.find((e) => STAGING.test(e));
-  if (leftover) {
-    return refuse(`an earlier nest left ${join(root, leftover)}; move its contents back into ${root} `
-      + 'and remove it, then retry');
-  }
   // Windows drops a trailing space or dot from a name, so the folder would be named differently.
   if (!validName(name) || /[ .]$/.test(name)) {
     return refuse(`invalid folder name '${name}': one name of letters, digits, space and ._-, `
