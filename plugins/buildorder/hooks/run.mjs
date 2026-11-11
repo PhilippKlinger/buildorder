@@ -42,7 +42,8 @@ function fileStart(input) {
  *   git call  = git | git.exe at the command position, then neutral flags or -C <dir> (repeatable,
  *               each relative to the one before), then the subcommand
  *   add call  = git | git.exe as the first word, then `add` and words that are no git word and not
- *               exactly commit or ci, followed by "&&", ";", newline or the end; it sets no folder
+ *               exactly commit or ci, followed by "&&", ";", newline or the end; it sets no folder,
+ *               but before a commit it is handed to the guard as `addBeforeCommit`
  *
  * Route (a), the whole command fits the grammar: subcommand `commit` gives its folder; another
  * subcommand at the command position is no commit, unless one of its later words is git (git
@@ -140,12 +141,18 @@ function literalDir(text) {
 /** A plain `git add ...`: git as the first word and `add` right after it (no assignment, no global option). */
 const isAddCall = (words) => GIT_EXE.test(words[0]) && words[1] === 'add';
 
-/** Commit folders of a command inside the grammar: `{ targets }`, or `{ unsure: true }`. */
+/**
+ * Commit folders of a command inside the grammar: `{ targets, addBefore }`, or `{ unsure: true }`.
+ * `addBefore` is true when an add call runs before a commit, so the commit may take files that are
+ * untracked now.
+ */
 function grammarTargets(commands, cwd) {
   const unsure = { unsure: true };
   const targets = new Set();
   let base = cwd;
   let moved = false;
+  let added = false;
+  let addBefore = false;
   for (let i = 0; i < commands.length; i++) {
     const { words, sep } = commands[i];
     let k = 0;
@@ -185,18 +192,22 @@ function grammarTargets(commands, cwd) {
     if (sub.startsWith('-') || sub === 'ci') return unsure;
     if (sub === 'commit') {
       targets.add(dirs.reduce((dir, next) => resolve(dir, next), base));
+      addBefore ||= added;
       continue;
     }
     // git among the arguments of another subcommand runs on its own (submodule foreach, rebase -x, bisect run).
     const rest = words.slice(j + 1);
     if (rest.some((w) => GIT_WORD.test(w))) return unsure;
     const oddAdd = !isAddCall(words) || !ADD_SEPS.includes(sep) || rest.some((w) => /^(?:commit|ci)$/i.test(w));
-    if (sub === 'add' && oddAdd) return unsure;
+    if (sub === 'add') {
+      if (oddAdd) return unsure;
+      added = true;
+    }
   }
-  return targets.size > 1 ? unsure : { targets };
+  return targets.size > 1 ? unsure : { targets, addBefore };
 }
 
-/** Route (b): the folder of a commit whose rest is message text, or null (see the grammar above). */
+/** Route (b): `{ path, addBefore }` of a commit whose rest is message text, or null (see the grammar above). */
 function freeTextTarget(command, cwd) {
   const tokens = lex(command, true);
   if (tokens === null) return null;
@@ -207,12 +218,13 @@ function freeTextTarget(command, cwd) {
   const result = grammarTargets(commands, cwd);
   if (result.unsure || result.targets.size !== 1) return null;
   const tail = command.slice(tokens.at(-1).end);
-  return TAIL_DENY.some((re) => re.test(tail)) ? null : [...result.targets][0];
+  return TAIL_DENY.some((re) => re.test(tail)) ? null : { path: [...result.targets][0], addBefore: result.addBefore };
 }
 
 /**
- * Bash/PowerShell: `{ path, unclear }` for the folder the git commit runs in, or null when the
- * command makes no commit. Unclear targets use the session folder and carry `hint` (see the grammar above).
+ * Bash/PowerShell: `{ path, unclear, addBefore }` for the folder the git commit runs in, or null when
+ * the command makes no commit. `addBefore`: a git add call runs before the commit. Unclear targets
+ * use the session folder and carry `hint` (see the grammar above).
  */
 function gitStart(input) {
   const command = input.tool_input?.command;
@@ -223,10 +235,13 @@ function gitStart(input) {
   if (bearing && REDIRECT_ENV.test(command)) return unclear;
   const tokens = lex(command);
   const result = tokens === null ? { unsure: true } : grammarTargets(simpleCommands(tokens), cwd);
-  if (!result.unsure) return result.targets.size === 0 ? null : { path: [...result.targets][0], unclear: false };
+  if (!result.unsure) {
+    if (result.targets.size === 0) return null;
+    return { path: [...result.targets][0], unclear: false, addBefore: result.addBefore };
+  }
   if (!bearing) return null;
   const target = freeTextTarget(command, cwd);
-  return target === null ? unclear : { path: target, unclear: false };
+  return target === null ? unclear : { ...target, unclear: false };
 }
 
 const ENTRIES = new Map([
@@ -307,7 +322,10 @@ async function main() {
   const disabled = Array.isArray(ws.hooks?.disabled) ? ws.hooks.disabled : [];
   const hooks = entry.hooks.filter((h) => !(OPTIONAL.has(h) && disabled.includes(h)));
   if (hooks.length === 0) return '';
-  const context = { root, ws, startPath: start.path, startUnclear: start.unclear, startHint: start.hint };
+  const context = {
+    root, ws, startPath: start.path, startUnclear: start.unclear, startHint: start.hint,
+    addBeforeCommit: start.addBefore === true,
+  };
   const results = [];
   for (const hook of hooks) {
     current = hook;

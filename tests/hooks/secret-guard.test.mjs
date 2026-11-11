@@ -8,8 +8,8 @@ import { fakeSecret, gitInit, makeWorkspace } from '../helpers/workspace.mjs';
 
 after(cleanup);
 
-function commit(command, { cwd, env } = {}) {
-  const input = { session_id: 's1', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command } };
+function commit(command, { cwd, env, tool = 'Bash' } = {}) {
+  const input = { session_id: 's1', hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { command } };
   if (cwd !== undefined) input.cwd = cwd;
   return runHook('secret', input, { cwd, env });
 }
@@ -98,6 +98,77 @@ test('a leading cd decides the repo', () => {
   assertDeny(commit('cd app && git commit -m x', { cwd: root }));
 });
 
+
+/** A workspace whose repo `app/` has one commit and the given files untracked on top of it. */
+function untracked(files) {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  write(app, { 'keep.js': 'const a = 1;\n' });
+  commitAll(app);
+  write(app, files);
+  return { root, app };
+}
+
+const UNTRACKED_NOTE = /\(untracked, git add may pick it up\)/;
+
+test('git add before the commit: untracked files are scanned, since the add may pick them up', () => {
+  const { root, app } = untracked({ 'src/config.js': awsLine() });
+  const cases = [
+    ['git add src/config.js && git commit -m x', app, 'Bash'],
+    ['git add -A && git commit -m x', app, 'Bash'],
+    ['cd app && git add . && git commit -m x', root, 'Bash'],
+    ['git add -A; git commit -m x', app, 'PowerShell'],
+  ];
+  for (const [command, cwd, tool] of cases) {
+    const text = assertDeny(commit(command, { cwd, tool }));
+    assert.match(text, /- src\/config\.js:1 AWS Access Key AKIA\.\.\. \(untracked, git add may pick it up\)\n/, command);
+    assert.match(text, /untracked files/, command);
+    assert.ok(!text.includes(fakeSecret('aws')), command);
+  }
+});
+
+test('git add before the commit: an untracked secret file is caught by name', () => {
+  const { app } = untracked({ '.env': 'A=1\n' });
+  const text = assertDeny(commit('git add -A && git commit -m x', { cwd: app }));
+  assert.match(text, /- \.env is a secret file \(never commit it\) \(untracked, git add may pick it up\)/);
+});
+
+test('git add before the commit: untracked files of the whole repo count, not only below the folder', () => {
+  const { app } = untracked({ 'other/a.js': awsLine(), 'sub/b.js': 'const k = 1;\n' });
+  const text = assertDeny(commit('git add -A && git commit -m x', { cwd: join(app, 'sub') }));
+  assert.match(text, /- other\/a\.js:1 AWS Access Key/);
+});
+
+test('git add before the commit: untracked UTF-16 files are scanned', () => {
+  const { app } = untracked({});
+  const body = awsLine();
+  writeFileSync(join(app, 'u16le.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(body, 'utf16le')]));
+  writeFileSync(join(app, 'bare16.txt'), Buffer.from(body, 'utf16le'));
+  const text = assertDeny(commit('git add -A && git commit -m x', { cwd: app }));
+  assert.match(text, /u16le\.txt:1 AWS Access Key/);
+  assert.match(text, /bare16\.txt:1 AWS Access Key/);
+});
+
+test('git add before the commit: untracked files over the size budget are denied, not skipped', () => {
+  const { app } = untracked({});
+  writeFileSync(join(app, 'big.bin'), Buffer.alloc(33 * 1024 * 1024));
+  assert.match(assertDeny(commit('git add -A && git commit -m x', { cwd: app })), /too large to check/);
+});
+
+test('without a git add first, untracked files are not part of the commit and not scanned', () => {
+  const { app } = untracked({ 'src/config.js': awsLine(), '.env': 'A=1\n' });
+  assertSilent(commit('git commit -m x', { cwd: app }));
+  assertSilent(commit('git commit -am x', { cwd: app }));
+});
+
+test('git add before the commit: ignored and clean untracked files pass', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  write(app, { '.gitignore': 'secret.js\n.env\n' });
+  commitAll(app);
+  write(app, { 'secret.js': awsLine(), '.env': 'A=1\n', 'clean.js': 'const t = process.env.TOKEN;\n' });
+  assertSilent(commit('git add -A && git commit -m x', { cwd: app }));
+});
 
 test('unstaged changes of tracked files are checked on every commit (-a, -am, pathspec, plain)', () => {
   const root = makeWorkspace();
