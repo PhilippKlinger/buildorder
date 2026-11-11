@@ -26,156 +26,137 @@ function fileStart(input) {
   return typeof file === 'string' && file !== '' ? { path: resolve(cwdOf(input), file), unclear: false } : null;
 }
 
-// A shell word (quoted and unquoted parts glued together) or a separator between simple commands.
-const TOKENS = /((?:"[^"]*"|'[^']*'|[^\s;&|()"'])+)|(&&|\|\||[;&|()\n])/g;
-const PARTS = /"([^"]*)"|'([^']*)'|([^"']+)/g;
-// Commands that change the folder (compared in lower case).
+/*
+ * Start folder of a git commit (secret entry). An allowlist, not a shell parser: a target is
+ * `clear` only when the whole command fits this grammar, and every other command that mentions
+ * git and a commit is `unclear`, so the guard refuses instead of checking the wrong repo.
+ *
+ *   command   = simple { sep simple }            sep = "&&" | "||" | ";" | newline
+ *   simple    = { assign } word { word }         assign = NAME=value, NAME not GIT_*
+ *   word      = plain | 'quoted' | "quoted"      one per word, never glued together
+ *   plain     = [~] [A-Za-z0-9_./:@%+=,-]+
+ *   quoted    = no \ ` $ # ' " or newline inside
+ *   cd        = (cd | pushd | Set-Location | Push-Location) [-Path | -LiteralPath] dir,
+ *               at most one, only as the first simple command, followed by "&&", ";" or newline
+ *   git call  = git | git.exe at the command position, then neutral flags or -C <dir> (repeatable,
+ *               each relative to the one before), then the subcommand
+ *
+ * Inside the grammar: subcommand `commit` gives its folder; another subcommand at the command
+ * position is no commit (its arguments cannot run anything). `ci`, any other option, a second
+ * folder change, git anywhere else in a command (xargs git, bash -c "git ..."), GIT_* assignments
+ * or commits into different folders are unclear.
+ * Outside the grammar: the raw text decides, before any tokenizing, so no escape, continuation
+ * or comment can hide a commit: git as a word and commit, ci or alias. anywhere means unclear,
+ * otherwise there is no commit. In any command that mentions git and a commit, a repo-moving
+ * GIT_* name (GIT_DIR, GIT_WORK_TREE, ...) makes the target unclear, with or without `=`.
+ */
+const LEX = /[ \t]+|(&&|\|\||;|\r?\n)|(~?[A-Za-z0-9_./:@%+=,-]+)|'([^\\`$#'"\n]*)'|"([^\\`$#'"\n]*)"/y;
+const GIT_WORD = /\bgit\b/i;
+const COMMIT_WORD = /\b(?:commit|ci)\b|\balias\./i;
+const REDIRECT_ENV = /\bGIT_(?:DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|CONFIG_PARAMETERS|CONFIG_COUNT)\b/i;
+const ASSIGN = /^[A-Za-z_]\w*=/;
+const GIT_EXE = /^git(?:\.exe)?$/i;
+// Commands that change the folder (compared in lower case) and the ones whose folder is read.
 const DIR_CMDS = new Set(['cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl', 'push-location', 'pop-location']);
-// The folder change that is read: `cd|pushd|Set-Location|Push-Location [-Path|-LiteralPath] <dir>`.
 const READ_CMDS = new Set(['cd', 'pushd', 'set-location', 'push-location']);
-// Words that may run git without changing the folder themselves.
-const WRAPPERS = new Set(['env', 'command', 'exec', 'time', 'nohup', 'nice', 'sudo']);
-const GIT_EXE = /^(?:.*[\\/])?git(?:\.exe)?$/i;
 // Global git options that do not change which repo git works in.
 const NEUTRAL = new Set([
   '-p', '--paginate', '-P', '--no-pager', '--no-optional-locks', '--no-replace-objects',
   '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs', '--no-advice',
 ]);
-// Environment that sends git to another repo, set inline, exported or through $env: anywhere in the command.
-const REDIRECT_NAMES = 'GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR|GIT_OBJECT_DIRECTORY|' +
-  'GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT';
-const REDIRECT_ENV = new RegExp(String.raw`(?:^|[^\w$:])(?:${REDIRECT_NAMES})\s*=|\benv:(?:${REDIRECT_NAMES})\b`, 'i');
-// `-c` keys that move the work tree.
-const REDIRECT_CONFIG = /^core\.(?:worktree|bare)$/i;
 
-/**
- * The folder a shell word names, or null when the shell would change it (variables, ~, escapes).
- * On Windows a Git Bash path `/e/dir` (or `/e`) becomes `e:/dir`.
- */
-function literalDir(word) {
-  const { text, literal } = unquote(word);
-  if (!literal || text === '' || /^[~-]/.test(text)) return null;
+/** The simple commands as `{ words, sep }` (words without quotes), or null when the text leaves the grammar. */
+function strictCommands(command) {
+  const list = [{ words: [], sep: '' }];
+  let i = 0;
+  while (i < command.length) {
+    LEX.lastIndex = i;
+    const m = LEX.exec(command);
+    if (m === null) return null;
+    i = LEX.lastIndex;
+    if (m[1] !== undefined) {
+      list.at(-1).sep = m[1].trim() === '' ? '\n' : m[1];
+      list.push({ words: [], sep: '' });
+      continue;
+    }
+    const word = m[2] ?? m[3] ?? m[4];
+    if (word === undefined) continue; // blanks
+    if (i < command.length && !/[ \t;&|\r\n]/.test(command[i])) return null; // glued words
+    list.at(-1).words.push(word);
+  }
+  return list.filter((c) => c.words.length > 0);
+}
+
+/** A folder word as a path, or null for ~, an option or an empty word. Git Bash `/e/dir` becomes `e:/dir` on Windows. */
+function literalDir(text) {
+  if (text === '' || /^[~-]/.test(text)) return null;
   return IS_WINDOWS ? text.replace(/^\/([A-Za-z])(?:\/|$)/, '$1:/') : text;
 }
 
-/**
- * The text of a shell word without its quotes. `literal` is false when the shell would change it:
- * `$`, backtick or `%` outside single quotes, or an unquoted part ending in a backslash (escape).
- */
-function unquote(word) {
-  let text = '';
-  let literal = true;
-  for (const [, double, single, bare] of word.matchAll(PARTS)) {
-    if (single !== undefined) {
-      text += single;
+/** Commit folders of a command inside the grammar: `{ targets }`, or `{ unsure: true }`. */
+function grammarTargets(commands, cwd) {
+  const unsure = { unsure: true };
+  const targets = new Set();
+  let base = cwd;
+  let moved = false;
+  for (let i = 0; i < commands.length; i++) {
+    const { words, sep } = commands[i];
+    let k = 0;
+    while (k < words.length - 1 && ASSIGN.test(words[k])) {
+      if (/^GIT_/i.test(words[k])) return unsure;
+      k++;
+    }
+    const cmd = words[k];
+    if (DIR_CMDS.has(cmd.toLowerCase())) {
+      const args = words.slice(k + 1);
+      const flag = args.length === 2 && /^-(?:literal)?path$/i.test(args[0]);
+      const dir = args.length === 1 || flag ? literalDir(args.at(-1)) : null;
+      const first = i === 0 && k === 0 && !moved && READ_CMDS.has(cmd.toLowerCase());
+      if (!first || dir === null || !['&&', ';', '\n'].includes(sep)) return unsure;
+      base = resolve(cwd, dir);
+      moved = true;
       continue;
     }
-    const part = double ?? bare;
-    if (/[$`%]/.test(part) || (bare !== undefined && bare.endsWith('\\'))) literal = false;
-    text += part;
-  }
-  return { text, literal };
-}
-
-/** The simple commands of `command` as `{ words, sep }` (sep: the separator after it), or null when a quote is open. */
-function simpleCommands(command) {
-  const list = [{ words: [], sep: '' }];
-  let seen = 0;
-  for (const m of command.matchAll(TOKENS)) {
-    if (command.slice(seen, m.index).trim() !== '') return null; // text no token covers: an open quote
-    seen = m.index + m[0].length;
-    if (m[1] !== undefined) list.at(-1).words.push(m[1]);
-    else {
-      list.at(-1).sep = m[2];
-      list.push({ words: [], sep: '' });
-    }
-  }
-  if (command.slice(seen).trim() !== '') return null;
-  return list.filter((c) => c.words.length > 0 || c.sep !== '');
-}
-
-/**
- * The `-C` folders of one simple command when it is a git commit: `{ dirs }`; `{ unclear: true }` when
- * the repo cannot be read literally; null when it is no git commit (another subcommand, or git is
- * only an argument as in `echo git commit`).
- */
-function commitDirs(words) {
-  const text = (w) => unquote(w).text;
-  const at = words.findIndex((w) => GIT_EXE.test(text(w)));
-  if (at < 0) return null;
-  // Before git: assignments and wrappers keep the folder; after an option (`env -C x`) anything may.
-  let unsure = false;
-  for (const w of words.slice(0, at)) {
-    const t = text(w);
-    if (t.startsWith('-')) unsure = true;
-    else if (!unsure && !/^[A-Za-z_]\w*=/.test(t) && !WRAPPERS.has(t)) return null;
-  }
-  const rest = words.slice(at + 1);
-  const dirs = [];
-  for (let i = 0; i < rest.length; i++) {
-    const t = text(rest[i]);
-    if (t === '-C' || t === '-c') {
-      const value = rest[++i];
-      if (value === undefined) return null;
-      if (t === '-C') {
-        const dir = literalDir(value);
-        if (dir === null) unsure = true;
-        else dirs.push(dir);
-      } else {
-        const key = text(value).split('=')[0].trim();
-        if (/[$`]/.test(key) || REDIRECT_CONFIG.test(key)) unsure = true;
-      }
-    } else if (NEUTRAL.has(t)) {
+    if (!GIT_EXE.test(cmd)) {
+      // git inside another command (xargs git, bash -c "git ...", if/then) cannot be read.
+      if (words.some((w) => GIT_WORD.test(w))) return unsure;
       continue;
-    } else if (t.startsWith('-')) {
-      // An unknown option may take a value, so any later `commit` may be the subcommand.
-      return rest.slice(i + 1).some((w) => text(w) === 'commit') ? { unclear: true } : null;
-    } else {
-      if (t !== 'commit') return null;
-      return unsure ? { unclear: true } : { dirs };
     }
+    const dirs = [];
+    let j = k + 1;
+    for (; j < words.length; j++) {
+      if (words[j] === '-C') {
+        const dir = words[j + 1] === undefined ? null : literalDir(words[j + 1]);
+        if (dir === null) return unsure;
+        dirs.push(dir);
+        j++;
+      } else if (!NEUTRAL.has(words[j])) break;
+    }
+    const sub = words[j];
+    if (sub === undefined) continue;
+    if (sub.startsWith('-') || sub === 'ci') return unsure;
+    if (sub === 'commit') targets.add(dirs.reduce((dir, next) => resolve(dir, next), base));
   }
-  return null;
+  return targets.size > 1 ? unsure : { targets };
 }
 
 /**
- * Bash/PowerShell: the folder the git commit runs in. One leading `cd`/`pushd`/`Set-Location`
- * moves the base; each `git -C <dir>` resolves against the previous one, as git does.
- * When the folder cannot be read literally, the session folder is used with `unclear: true`,
- * so the guard can refuse instead of checking the wrong repo.
+ * Bash/PowerShell: `{ path, unclear }` for the folder the git commit runs in, or null when the
+ * command makes no commit. Unclear targets use the session folder (see the grammar above).
  */
 function gitStart(input) {
   const command = input.tool_input?.command;
   if (typeof command !== 'string') return null;
   const cwd = cwdOf(input);
   const unclear = { path: cwd, unclear: true };
-  if (REDIRECT_ENV.test(command)) return unclear;
-  const commands = simpleCommands(command);
-  if (commands === null) return unclear;
-  let base = cwd;
-  const changes = commands.flatMap((c, i) =>
-    c.words.flatMap((w, j) => (DIR_CMDS.has(unquote(w).text.toLowerCase()) ? [[i, j]] : [])));
-  if (changes.length > 1) return unclear;
-  if (changes.length === 1) {
-    // Only `<cmd> [-Path|-LiteralPath] <dir>` as the first simple command, then `&&`, `;` or a newline.
-    const [first] = commands;
-    const words = first.words.map((w) => unquote(w).text.toLowerCase());
-    const flag = words.length === 3 && (words[1] === '-path' || words[1] === '-literalpath');
-    const dir = first.words.length === 2 || flag ? literalDir(first.words.at(-1)) : null;
-    const read = changes[0][0] === 0 && changes[0][1] === 0 && READ_CMDS.has(words[0]);
-    if (!read || !['&&', ';', '\n'].includes(first.sep) || dir === null) return unclear;
-    base = resolve(cwd, dir);
-  }
-  const targets = new Set();
-  for (const { words } of commands) {
-    const call = commitDirs(words);
-    if (call === null) continue;
-    if (call.unclear) return unclear;
-    targets.add(call.dirs.reduce((dir, next) => resolve(dir, next), base));
-  }
-  // Several commits into different repos cannot be checked from one start folder.
-  if (targets.size > 1) return unclear;
-  return { path: targets.size === 1 ? [...targets][0] : base, unclear: false };
+  const bearing = GIT_WORD.test(command) && COMMIT_WORD.test(command);
+  if (bearing && REDIRECT_ENV.test(command)) return unclear;
+  const commands = strictCommands(command);
+  if (commands === null) return bearing ? unclear : null;
+  const result = grammarTargets(commands, cwd);
+  if (result.unsure) return bearing ? unclear : null;
+  if (result.targets.size === 0) return null;
+  return { path: [...result.targets][0], unclear: false };
 }
 
 const ENTRIES = new Map([

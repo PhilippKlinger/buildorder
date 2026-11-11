@@ -195,28 +195,72 @@ test('secret starts at the folder the git command runs in', () => {
     same(r.startPath, cwd);
     assert.equal(r.startUnclear, true, command);
   };
-  clear(`git -C "${app}" commit -m x`, outside, app);
-  clear(`git -C '${app}' commit -m x`, outside, app);
+  // No commit: nothing to check, so the hook is not called even inside the workspace.
+  const none = (command, cwd = app) => assert.equal(report(command, cwd), null, String(command));
+  // Typed backslashes and backticks get mangled by some tools, so they are built at runtime.
+  const BS = String.fromCharCode(92);
+  const BT = String.fromCharCode(96);
+  const fwd = (p) => p.split(BS).join('/');
+
+  // Commands inside the strict grammar resolve to their folder.
+  clear(`git -C "${fwd(app)}" commit -m x`, outside, app);
+  clear(`git -C '${fwd(app)}' commit -m x`, outside, app);
   clear('git -C app commit -m x', root, app);
   clear('git -C app -C src commit -m x', root, join(app, 'src'));
-  clear('git -c user.name=x --no-pager -C app commit -m x', root, app);
-  clear(`cd "${app}" && git commit -m x`, outside, app);
-  clear(`Set-Location '${app}'; git commit -m x`, outside, app);
+  clear('git --no-pager -C app commit -m x', root, app);
+  clear(`cd "${fwd(app)}" && git commit -m x`, outside, app);
+  clear(`Set-Location '${fwd(app)}'; git commit -m x`, outside, app);
   clear("Set-Location -Path 'app'; git commit -m x", root, app);
   clear('pushd app && git commit -m x', root, app);
   clear('cd app; git -C src commit -m x', root, join(app, 'src'));
+  clear('cd app\ngit commit -m x', root, app);
   clear('git commit -m x', app, app);
   clear('git commit -m "fix the git commit hook"', app, app);
+  clear('git commit -m "feat(hooks): add x"', app, app);
+  clear('git commit -m "cd docs; git -C elsewhere commit"', app, app);
   clear('git log --grep commit && git -C app commit -m x', root, app);
-  // The subcommand comes from tokens, so `commit` inside a -C folder does not end the options.
+  clear('FOO=1 git -C src commit -m x', app, join(app, 'src'));
+  // `commit` inside a -C folder is a folder name, not the subcommand.
   write(app, { 'commit-tools/.keep': '', 'my commit dir/.keep': '', 'tools/pre-commit/.keep': '' });
   clear('git -C ./commit-tools commit -m x', app, join(app, 'commit-tools'));
   clear('git -C "my commit dir" commit -m x', app, join(app, 'my commit dir'));
   clear('git -C tools/pre-commit commit -m x', app, join(app, 'tools', 'pre-commit'));
-  clear('cd .git && git status', app, join(app, '.git'));
-  clear('git -c user.name=x commit -m x', app, app);
-  clear('git commit -m "cd docs; git -C elsewhere commit"', app, app);
-  clear('env FOO=1 git -C src commit -m x', app, join(app, 'src'));
+
+  none('git log --grep commit');
+  none('git status');
+  none('cd .git && git status');
+  none('cd app');
+  none('echo hello');
+  none(`echo "it${BS}'s" ${BT}date${BT}`);
+  for (const command of [undefined, 42]) none(command);
+
+  // Outside the grammar, any command that mentions git and commit is unclear.
+  // (A) escapes, continuations and comments.
+  unclear(`git -C my${BT} dir commit -m x`, root);
+  unclear(`git -C app ${BT}\ncommit -m x`, root);
+  unclear(`git -C my${BS} dir commit -m x`, root);
+  unclear(`git -C app ${BS}\ncommit -m x`, root);
+  unclear("# don't\ngit -C ../o commit -m x", root);
+  unclear(`git commit -m it${BS}'s`, root);
+  unclear(`git commit -m "a${BS}"b"`, root);
+  // (B) git not at the command position, or inside another command.
+  unclear('xargs git -C ../o commit', root);
+  unclear('watch git -C ../o commit', root);
+  unclear('cmd /c git -C ../o commit', root);
+  unclear('pwsh -c git -C ../o commit', root);
+  unclear('bash -c "git -C ../o commit"', root);
+  unclear("sh -c 'cd ../o && git commit'", root);
+  unclear(`${BT}git -C ../o commit${BT}`, root);
+  unclear('echo "$(git -C ../o commit)"', root);
+  unclear('if ($true) { git -C ../o commit }', root);
+  unclear('try { git -C ../o commit } catch {}', root);
+  unclear('if true; then git -C ../o commit; fi', root);
+  unclear('git -c alias.ci=commit -C ../o ci', root);
+  unclear('git -C ../o ci -m x', root);
+  unclear('env FOO=1 git -C src commit -m x', root);
+  unclear('git -c user.name=x commit -m x', root);
+  unclear(`git commit -m "it's"`, root);
+  unclear('git -C app"x" commit -m x', root);
   unclear('cd $REPO && git commit -m x', app);
   unclear('cd ~/x && git commit -m x', app);
   unclear('cd $HOME && git -C app commit -m x', root);
@@ -235,6 +279,9 @@ test('secret starts at the folder the git command runs in', () => {
   unclear('export GIT_DIR=app/.git; git commit -m x', root);
   unclear("$env:GIT_DIR='app/.git'; git commit -m x", root);
   unclear('$env:GIT_WORK_TREE = "app"; git commit -m x', root);
+  unclear("[Environment]::SetEnvironmentVariable('GIT_DIR', 'app/.git'); git commit -m x", root);
+  unclear('export GIT_DIR; git commit -m x', root);
+  unclear('GIT_AUTHOR_NAME=x git commit -m x', root);
   unclear('git -c core.worktree=app commit -m x', root);
   unclear('git -c core.bare=false -C app commit -m x', root);
   unclear('git -c "Core.WorkTree=app" commit -m x', root);
@@ -242,8 +289,8 @@ test('secret starts at the folder the git command runs in', () => {
   unclear('env -C app git commit -m x', root);
   unclear('(cd app; git commit -m x)', root);
   unclear('git commit -m "open quote', root);
-  assert.equal(report(`echo "${app}" && git commit -m x`), null);
-  for (const command of [undefined, 42]) assert.equal(report(command), null);
+  // Native Windows paths carry backslashes, which the grammar does not accept.
+  if (process.platform === 'win32') unclear(`git -C "${app}" commit -m x`, root);
 });
 
 test('secret reads Git Bash drive paths on Windows', { skip: process.platform !== 'win32' }, () => {
@@ -260,7 +307,7 @@ test('secret reads Git Bash drive paths on Windows', { skip: process.platform !=
   };
   same(start(`cd "${bash(app)}" && git commit -m x`), app);
   same(start(`git -C "${bash(app)}" commit -m x`), app);
-  same(start(`cd /${app[0].toLowerCase()} && git -C "${app.slice(3)}" commit -m x`), app);
+  same(start(`cd /${app[0].toLowerCase()} && git -C "${app.slice(3).replace(/\\/g, '/')}" commit -m x`), app);
 });
 
 // Ways a hook module can fail; each message carries a marker that must never reach the output.
