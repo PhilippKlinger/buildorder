@@ -12,7 +12,7 @@ export const PATTERNS = [
   ['Google API Key', /\bAIza[0-9A-Za-z_-]{35}\b/],
   ['Slack Token', /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/],
   ['Django SECRET_KEY', /\bSECRET_KEY\s*=\s*['"]([^'"]{20,})['"]/],
-  ['Password/token in code', /\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\b\s*[:=]\s*['"]([^'"\s]{8,})['"]/i],
+  ['Password/token in code', /\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\b['"]?\s*[:=]\s*['"]([^'"\s]{8,})['"]/i],
 ];
 
 // Applies to the matched secret value only, never to the rest of the line.

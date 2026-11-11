@@ -27,6 +27,14 @@ test('flags a password literal with an English label', () => {
   assert.equal(scanLine(`password = "${fakeSecret('password')}"`).label, 'Password/token in code');
 });
 
+test('flags quoted keys in JSON and YAML', () => {
+  const pw = fakeSecret('password');
+  assert.equal(scanLine(`{"password": "${pw}"}`).label, 'Password/token in code');
+  assert.equal(scanLine(`'api_key': '${pw}'`).label, 'Password/token in code');
+  assert.equal(scanLine(`password: "${pw}"`).label, 'Password/token in code');
+  assert.equal(scanLine('"password": "${DB_PASSWORD}"'), null);
+});
+
 test('never returns the full value', () => {
   const hit = scanLine(`key = ${fakeSecret('aws')}`);
   assert.ok(!hit.masked.includes(fakeSecret('aws')));
