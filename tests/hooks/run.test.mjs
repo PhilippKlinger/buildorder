@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { repoRoot } from '../helpers/repo.mjs';
 import { cleanup, tempDir, write } from '../helpers/cli.mjs';
 import { runHook } from '../helpers/hooks.mjs';
@@ -172,9 +172,8 @@ test('boundary starts at file_path, resolved against cwd', () => {
   for (const file_path of [undefined, '', 42]) silent(at(root, file_path));
 });
 
-test('secret starts at the folder the git command runs in', () => {
-  const root = makeWorkspace();
-  const app = join(root, 'app');
+/** Assertions on the secret start folder of a command, run through a stub plugin. */
+function secretProbe(app) {
   const outside = tempDir('outside git');
   const run = stubPlugin();
   const report = (command, cwd = outside) => {
@@ -197,9 +196,17 @@ test('secret starts at the folder the git command runs in', () => {
   };
   // No commit: nothing to check, so the hook is not called even inside the workspace.
   const none = (command, cwd = app) => assert.equal(report(command, cwd), null, String(command));
-  // Typed backslashes and backticks get mangled by some tools, so they are built at runtime.
-  const BS = String.fromCharCode(92);
-  const BT = String.fromCharCode(96);
+  return { outside, clear, unclear, none };
+}
+
+// Typed backslashes and backticks get mangled by some tools, so they are built at runtime.
+const BS = String.fromCharCode(92);
+const BT = String.fromCharCode(96);
+
+test('secret starts at the folder the git command runs in', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  const { outside, clear, unclear, none } = secretProbe(app);
   const fwd = (p) => p.split(BS).join('/');
 
   // Commands inside the strict grammar resolve to their folder.
@@ -241,8 +248,9 @@ test('secret starts at the folder the git command runs in', () => {
   unclear(`git -C my${BS} dir commit -m x`, root);
   unclear(`git -C app ${BS}\ncommit -m x`, root);
   unclear("# don't\ngit -C ../o commit -m x", root);
-  unclear(`git commit -m it${BS}'s`, root);
-  unclear(`git commit -m "a${BS}"b"`, root);
+  // Before the commit word; the same escapes in the message are free text (next test).
+  unclear(`git -C it${BS}'s commit -m x`, root);
+  unclear(`git -C "a${BS}"b" commit -m x`, root);
   // (B) git not at the command position, or inside another command.
   unclear('xargs git -C ../o commit', root);
   unclear('watch git -C ../o commit', root);
@@ -259,7 +267,6 @@ test('secret starts at the folder the git command runs in', () => {
   unclear('git -C ../o ci -m x', root);
   unclear('env FOO=1 git -C src commit -m x', root);
   unclear('git -c user.name=x commit -m x', root);
-  unclear(`git commit -m "it's"`, root);
   unclear('git -C app"x" commit -m x', root);
   unclear('cd $REPO && git commit -m x', app);
   unclear('cd ~/x && git commit -m x', app);
@@ -288,9 +295,70 @@ test('secret starts at the folder the git command runs in', () => {
   // Other unclear shapes.
   unclear('env -C app git commit -m x', root);
   unclear('(cd app; git commit -m x)', root);
-  unclear('git commit -m "open quote', root);
-  // Native Windows paths carry backslashes, which the grammar does not accept.
-  if (process.platform === 'win32') unclear(`git -C "${app}" commit -m x`, root);
+  unclear('git -C "open quote commit -m x', root);
+});
+
+test('secret reads the rest of a parsed commit as message text', () => {
+  const root = makeWorkspace();
+  const app = join(root, 'app');
+  const { outside, clear, unclear } = secretProbe(app);
+  const heredoc = (body) => `git commit -m "$(cat <<'EOF'\nfeat: x\n\n${body}\nEOF\n)"`;
+
+  // Clear: the prefix up to the first commit word fits the grammar and the rest is message text.
+  clear(heredoc("body with it's and #12 and $HOME"), app, app);
+  clear('git -C app commit -m "it\'s done"', root, app);
+  clear('cd app && git commit -m "fix #12"', root, app);
+  clear("git commit -m 'cost: $5'", app, app);
+  clear(`git commit -m "it's"`, app, app);
+  clear('git commit -m "open quote', app, app);
+  // Escapes after the commit word cannot move the target.
+  clear(`git commit -m it${BS}'s`, app, app);
+  clear(`git commit -m "a${BS}"b"`, app, app);
+  clear(`git commit ${BS}\n-m "it's"`, app, app);
+  clear('git --no-pager -C app commit -m "#1"', root, app);
+  clear("Set-Location -Path 'app'; git commit -m \"it's\"", root, app);
+  // The first unquoted commit word ends the prefix; a quoted one is a folder name.
+  clear('git -C "commit" commit -m "it\'s"', app, join(app, 'commit'));
+  // Backslashes inside quotes: native Windows paths, both quote styles, also on the free-text route.
+  clear(`git -C "${app}" commit -m "a"`, outside, app);
+  clear(`git -C '${app}' commit -m "a"`, outside, app);
+  clear(`git -C "${app}" commit -m "it's"`, outside, app);
+  clear(`cd '${app}' && git commit -m "fix #12"`, outside, app);
+  write(app, { 'src/.keep': '' });
+  const nested = `app${BS}src`;
+  clear(`git -C "${nested}" commit -m x`, root, resolve(root, nested));
+  clear(`git -C '${nested}' commit -m "it's"`, root, resolve(root, nested));
+
+  // Unclear: the rest names git, a commit, a folder change or a GIT_* variable.
+  unclear(heredoc('see the git docs'), app);
+  unclear(heredoc('amend the last commit'), app);
+  unclear(heredoc('run ci again'), app);
+  unclear(heredoc('cd into docs first'), app);
+  unclear(heredoc('Set-Location in the scripts'), app);
+  unclear(heredoc('use set-location here'), app);
+  unclear(heredoc('pushd and popd'), app);
+  unclear('git commit -m "$(x)" && git push', app);
+  unclear('git commit -m "x"; cd other', app);
+  unclear('git commit -m "it\'s"; sl ..', app);
+  unclear('git commit -m "$(cd ..)"', app);
+  unclear('git commit -m "$($env:GIT_CONFIG_GLOBAL=\'x\')"', app);
+  unclear(heredoc('set $GIT_DIR first'), app);
+  // Unclear: the prefix breaks a rule of the grammar.
+  unclear('xargs git commit -m "$(date)"', app);
+  unclear(`git -C "E:${BS}x${BS}$y" commit -m "it's"`, app);
+  unclear(`git -C "app${BS}${BS}src" commit -m x`, root);
+  unclear(`git -C "app${BS}" commit -m "x"`, root);
+  unclear('git -c user.name=x commit -m "it\'s"', root);
+  unclear('git ci -m "it\'s"', root);
+  unclear('GIT_AUTHOR_NAME=x git commit -m "it\'s"', root);
+  unclear('env FOO=1 git commit -m "it\'s"', root);
+  unclear('cd app && cd src && git commit -m "it\'s"', root);
+  unclear('cd ~/x && git commit -m "it\'s"', root);
+  unclear('echo x && git commit -m "it\'s"', root);
+  unclear('cd app && echo x && git commit -m "it\'s"', root);
+  unclear('git log --grep commit && git commit -m "it\'s"', root);
+  unclear('git commit"x" -m "it\'s"', root);
+  unclear('git -C app commit -m "a" && git -C src commit -m "b\'"', root);
 });
 
 test('secret reads Git Bash drive paths on Windows', { skip: process.platform !== 'win32' }, () => {

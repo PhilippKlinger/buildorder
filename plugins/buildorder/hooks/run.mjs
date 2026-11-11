@@ -28,34 +28,48 @@ function fileStart(input) {
 
 /*
  * Start folder of a git commit (secret entry). An allowlist, not a shell parser: a target is
- * `clear` only when the whole command fits this grammar, and every other command that mentions
- * git and a commit is `unclear`, so the guard refuses instead of checking the wrong repo.
+ * `clear` only on route (a) or (b) below, and every other command that mentions git and a
+ * commit is `unclear`, so the guard refuses instead of checking the wrong repo.
  *
  *   command   = simple { sep simple }            sep = "&&" | "||" | ";" | newline
  *   simple    = { assign } word { word }         assign = NAME=value, NAME not GIT_*
  *   word      = plain | 'quoted' | "quoted"      one per word, never glued together
  *   plain     = [~] [A-Za-z0-9_./:@%+=,-]+
- *   quoted    = no \ ` $ # ' " or newline inside
+ *   quoted    = no ` $ # ' " or newline inside, and a \ only when the next character is none of
+ *               $ ` " \ or newline, so "E:\dir\app" reads the same in Bash and PowerShell
  *   cd        = (cd | pushd | Set-Location | Push-Location) [-Path | -LiteralPath] dir,
  *               at most one, only as the first simple command, followed by "&&", ";" or newline
  *   git call  = git | git.exe at the command position, then neutral flags or -C <dir> (repeatable,
  *               each relative to the one before), then the subcommand
  *
- * Inside the grammar: subcommand `commit` gives its folder; another subcommand at the command
- * position is no commit (its arguments cannot run anything). `ci`, any other option, a second
- * folder change, git anywhere else in a command (xargs git, bash -c "git ..."), GIT_* assignments
- * or commits into different folders are unclear.
- * Outside the grammar: the raw text decides, before any tokenizing, so no escape, continuation
- * or comment can hide a commit: git as a word and commit, ci or alias. anywhere means unclear,
- * otherwise there is no commit. In any command that mentions git and a commit, a repo-moving
- * GIT_* name (GIT_DIR, GIT_WORK_TREE, ...) makes the target unclear, with or without `=`.
+ * Route (a), the whole command fits the grammar: subcommand `commit` gives its folder; another
+ * subcommand at the command position is no commit (its arguments cannot run anything). `ci`, any
+ * other option, a second folder change, git anywhere else in a command (xargs git, bash -c
+ * "git ..."), GIT_* assignments or commits into different folders are unsure.
+ * Route (b), the rest of a commit is message text: when route (a) fails or is unsure, the raw text
+ * up to and including the first plain `commit` word must fit the grammar as
+ * `[cd <dir> sep] {assign} git {neutral flag | -C <dir>} commit`. The raw text after that word
+ * (heredoc, $(...), quotes, escapes, newlines) is free text when it has no `git`, no `commit` or
+ * `ci`, no folder-change word (cd, pushd, popd, chdir, sl, Set-Location, Push-Location,
+ * Pop-Location) and no GIT_* name, so nothing in it can move the target.
+ * Otherwise the raw text decides, before any tokenizing, so no escape, continuation or comment
+ * can hide a commit: git as a word and commit, ci or alias. anywhere means unclear, otherwise
+ * there is no commit. In any command that mentions git and a commit, a repo-moving GIT_* name
+ * (GIT_DIR, GIT_WORK_TREE, ...) makes the target unclear, with or without `=`.
  */
-const LEX = /[ \t]+|(&&|\|\||;|\r?\n)|(~?[A-Za-z0-9_./:@%+=,-]+)|'([^\\`$#'"\n]*)'|"([^\\`$#'"\n]*)"/y;
+const LEX = /[ \t]+|(&&|\|\||;|\r?\n)|(~?[A-Za-z0-9_./:@%+=,-]+)|'((?:[^\\`$#'"\n]|\\(?![$`"\\\n]))*)'|"((?:[^\\`$#'"\n]|\\(?![$`"\\\n]))*)"/y;
 const GIT_WORD = /\bgit\b/i;
 const COMMIT_WORD = /\b(?:commit|ci)\b|\balias\./i;
 const REDIRECT_ENV = /\bGIT_(?:DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|CONFIG_PARAMETERS|CONFIG_COUNT)\b/i;
 const ASSIGN = /^[A-Za-z_]\w*=/;
 const GIT_EXE = /^git(?:\.exe)?$/i;
+// Route (b): words that must not appear in the free text after the commit word.
+const TAIL_DENY = [
+  GIT_WORD,
+  /\b(?:commit|ci)\b/i,
+  /\b(?:cd|chdir|pushd|popd|sl|set-location|push-location|pop-location)\b/i,
+  /\bGIT_[A-Z_]+/i,
+];
 // Commands that change the folder (compared in lower case) and the ones whose folder is read.
 const DIR_CMDS = new Set(['cd', 'chdir', 'pushd', 'popd', 'set-location', 'sl', 'push-location', 'pop-location']);
 const READ_CMDS = new Set(['cd', 'pushd', 'set-location', 'push-location']);
@@ -65,9 +79,13 @@ const NEUTRAL = new Set([
   '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs', '--no-advice',
 ]);
 
-/** The simple commands as `{ words, sep }` (words without quotes), or null when the text leaves the grammar. */
-function strictCommands(command) {
-  const list = [{ words: [], sep: '' }];
+/**
+ * The tokens of `command`: `{ sep }` or `{ word, end }` (word without quotes, `end` just after it),
+ * or null when the text leaves the grammar. With `untilCommit` the list stops at the first plain
+ * `commit` word, and is null when there is none.
+ */
+function lex(command, untilCommit = false) {
+  const list = [];
   let i = 0;
   while (i < command.length) {
     LEX.lastIndex = i;
@@ -75,14 +93,28 @@ function strictCommands(command) {
     if (m === null) return null;
     i = LEX.lastIndex;
     if (m[1] !== undefined) {
-      list.at(-1).sep = m[1].trim() === '' ? '\n' : m[1];
-      list.push({ words: [], sep: '' });
+      list.push({ sep: m[1].trim() === '' ? '\n' : m[1] });
       continue;
     }
     const word = m[2] ?? m[3] ?? m[4];
     if (word === undefined) continue; // blanks
     if (i < command.length && !/[ \t;&|\r\n]/.test(command[i])) return null; // glued words
-    list.at(-1).words.push(word);
+    list.push({ word, end: i });
+    if (untilCommit && m[2] === 'commit') return list;
+  }
+  return untilCommit ? null : list;
+}
+
+/** The simple commands of a token list as `{ words, sep }`. */
+function simpleCommands(tokens) {
+  const list = [{ words: [], sep: '' }];
+  for (const t of tokens) {
+    if (t.sep === undefined) {
+      list.at(-1).words.push(t.word);
+      continue;
+    }
+    list.at(-1).sep = t.sep;
+    list.push({ words: [], sep: '' });
   }
   return list.filter((c) => c.words.length > 0);
 }
@@ -140,6 +172,20 @@ function grammarTargets(commands, cwd) {
   return targets.size > 1 ? unsure : { targets };
 }
 
+/** Route (b): the folder of a commit whose rest is message text, or null (see the grammar above). */
+function freeTextTarget(command, cwd) {
+  const tokens = lex(command, true);
+  if (tokens === null) return null;
+  const commands = simpleCommands(tokens);
+  // Only an optional folder change, then the git call that ends in this commit word.
+  if (commands.length > 2) return null;
+  if (commands.length === 2 && !DIR_CMDS.has(commands[0].words[0].toLowerCase())) return null;
+  const result = grammarTargets(commands, cwd);
+  if (result.unsure || result.targets.size !== 1) return null;
+  const tail = command.slice(tokens.at(-1).end);
+  return TAIL_DENY.some((re) => re.test(tail)) ? null : [...result.targets][0];
+}
+
 /**
  * Bash/PowerShell: `{ path, unclear }` for the folder the git commit runs in, or null when the
  * command makes no commit. Unclear targets use the session folder (see the grammar above).
@@ -151,12 +197,12 @@ function gitStart(input) {
   const unclear = { path: cwd, unclear: true };
   const bearing = GIT_WORD.test(command) && COMMIT_WORD.test(command);
   if (bearing && REDIRECT_ENV.test(command)) return unclear;
-  const commands = strictCommands(command);
-  if (commands === null) return bearing ? unclear : null;
-  const result = grammarTargets(commands, cwd);
-  if (result.unsure) return bearing ? unclear : null;
-  if (result.targets.size === 0) return null;
-  return { path: [...result.targets][0], unclear: false };
+  const tokens = lex(command);
+  const result = tokens === null ? { unsure: true } : grammarTargets(simpleCommands(tokens), cwd);
+  if (!result.unsure) return result.targets.size === 0 ? null : { path: [...result.targets][0], unclear: false };
+  if (!bearing) return null;
+  const target = freeTextTarget(command, cwd);
+  return target === null ? unclear : { path: target, unclear: false };
 }
 
 const ENTRIES = new Map([
