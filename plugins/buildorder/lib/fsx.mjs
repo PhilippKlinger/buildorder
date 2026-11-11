@@ -28,7 +28,7 @@ export function walk(dir, depth = Infinity, skip = new Set()) {
 /** Parsed JSON (a leading UTF-8 BOM is ignored), or null when the file is missing or invalid. */
 export function readJson(file) {
   try {
-    return JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, ''));
+    return JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
   } catch {
     return null;
   }

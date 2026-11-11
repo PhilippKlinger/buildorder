@@ -54,7 +54,7 @@ test('readJson ignores a leading UTF-8 BOM', () => {
   const dir = tree([]);
   try {
     const file = join(dir, 'bom.json');
-    writeFileSync(file, '﻿{"a":1}');
+    writeFileSync(file, '\uFEFF{"a":1}');
     assert.deepEqual(readJson(file), { a: 1 });
   } finally {
     rmSync(dir, { recursive: true, force: true });
