@@ -67,3 +67,12 @@ test('German template exemption covers de/ at any depth', () => {
   assert.ok(GERMAN_ALLOWED.test('plugins/b/templates/a/de/x'));
   assert.ok(!GERMAN_ALLOWED.test('templates/a/x'));
 });
+
+const GITLEAKS_ALLOWLIST = /(^|\/)\.gitleaks(\.toml|ignore)$/;
+
+test('no gitleaks config or ignore file is tracked', () => {
+  assert.ok(GITLEAKS_ALLOWLIST.test('.gitleaksignore'));
+  assert.ok(GITLEAKS_ALLOWLIST.test('a/b/.gitleaks.toml'));
+  assert.ok(!GITLEAKS_ALLOWLIST.test('docs/gitleaks.md'));
+  assert.deepEqual(trackedFiles().filter((f) => GITLEAKS_ALLOWLIST.test(f)), []);
+});
