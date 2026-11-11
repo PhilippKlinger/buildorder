@@ -2,6 +2,9 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** Folders that never hold a project's own files. */
+export const SKIP_DIRS = new Set(['node_modules', '.git', '.venv', 'dist']);
+
 /**
  * Files below `dir` as `/`-separated relative paths. `depth` counts directory
  * levels below `dir` (0 = only files directly in `dir`); directories named in
