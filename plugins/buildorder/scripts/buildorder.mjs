@@ -13,6 +13,8 @@
 //                                [--visibility public|private] [--without <id>=<reason>]... [--starter] [--apply]
 //                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
 //   node buildorder.mjs plan [repo] [same options as standard, without --starter and --apply; --gaps too]   (read-only)
+//   node buildorder.mjs radar-state [dir]   (read-only: lastRun and the fixed source list)
+//   node buildorder.mjs radar-done [dir] <YYYY-MM-DD>   (records radar.lastRun in workspace.json)
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
 // problems (verify, finalize), and a standard --apply whose commit git refused, print the JSON report and
@@ -22,10 +24,12 @@ import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
 import { githubChecklist } from '../lib/github.mjs';
 import { nest } from '../lib/nest.mjs';
+import { radarDone, radarState } from '../lib/radar.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
 import { gapList, standard } from '../lib/standard.mjs';
 import { finalize, verify } from '../lib/verify.mjs';
 import { formatStatus, status } from '../lib/status.mjs';
+import { findWorkspaceRoot } from '../lib/workspace.mjs';
 
 // `args`: how many arguments a command takes after [dir]; `options`: node:util parseArgs options;
 // `check`: the result's `ok` sets the exit code; `text(result, values)`: plain text to print instead of
@@ -80,6 +84,14 @@ const COMMANDS = {
     run: (dir, _args, opts) => standard(dir, opts),
   },
 };
+// radar-state is read-only (skills may pre-approve it); radar-done writes radar.lastRun to workspace.json.
+const wsRoot = (dir) => {
+  const root = findWorkspaceRoot(dir);
+  if (!root) throw new Error('not inside a Buildorder workspace (no .claude/workspace.json)');
+  return root;
+};
+COMMANDS['radar-state'] = { args: 0, run: (dir) => radarState(wsRoot(dir)) };
+COMMANDS['radar-done'] = { args: 1, run: (dir, [date]) => radarDone(wsRoot(dir), date) };
 const USAGE = `usage: buildorder.mjs <command> [dir] (commands: ${Object.keys(COMMANDS).join(', ')})`;
 
 function main(argv) {
