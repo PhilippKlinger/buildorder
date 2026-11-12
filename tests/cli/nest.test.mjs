@@ -380,6 +380,31 @@ test('a status that differs after the move leaves the files moved and says so', 
   assert.ok(existsSync(join(repo, '.git')));
 });
 
+test('does not claim nothing changed when the marker file cannot be removed', () => {
+  const stuck = () => { throw locked('EPERM'); };
+  const marker = (dir) => join(dir, `.buildorder-nest-${process.pid}`);
+
+  // Complete rollback, marker stays.
+  const dir = codeRepo('marker stuck rollback');
+  const entries = sorted(dir);
+  const failed = nest(dir, 'app', {
+    rename: (from, to) => (basename(from) === 'src' ? stuck() : renameSync(from, to)),
+    unlink: stuck,
+  });
+  assert.equal(failed.ok, false);
+  assert.doesNotMatch(failed.reason, /nothing changed/);
+  assert.ok(failed.reason.includes(marker(dir)), failed.reason);
+  assert.deepEqual(sorted(dir), [...entries, basename(marker(dir))].sort());
+
+  // Successful move, marker stays: a warning, the move itself is fine.
+  const done = codeRepo('marker stuck success');
+  const out = nest(done, 'app', { unlink: stuck });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.warnings.length, 1);
+  assert.ok(out.warnings[0].includes(marker(done)), out.warnings[0]);
+  assert.deepEqual(sorted(done), ['app', basename(marker(done))].sort());
+});
+
 test('warns about an entry that appeared outside the repo during the move', () => {
   const dir = codeRepo('stray');
   const out = nest(dir, 'app', {

@@ -127,15 +127,16 @@ function rollBack({ root, holder, entries, move }) {
  * already holds moved entries is never renamed: on Windows a watch handle on `.claude/` (Claude
  * Code keeps one) makes such a rename fail with EPERM. Since the entries are read before the
  * folder exists and the name is checked against them, the folder cannot clash with an entry.
- * An empty marker file `.buildorder-nest-<pid>` (content: the final name) exists from before the
+ * A marker file `.buildorder-nest-<pid>` (content: the final name) exists from before the
  * first move until success or a complete rollback; a killed run leaves it and the next run
  * refuses. Afterwards HEAD and `git status --ignored` must match the state before. A
  * mismatch leaves the files moved (undoing a finished move would be a second risky move).
  *
  * `options.rename` is a test-only seam (same signature as fs.renameSync) for simulating a
- * locked file; callers never pass it.
+ * locked file; `options.unlink` likewise (same signature as fs.unlinkSync) for the marker file.
+ * Callers never pass either.
  */
-export function nest(dir, repoPath, { rename = renameSync } = {}) {
+export function nest(dir, repoPath, { rename = renameSync, unlink = unlinkSync } = {}) {
   const root = resolve(dir);
   let name = repoPath ?? null;
   const refuse = (reason, moved = 0) => ({
@@ -185,11 +186,14 @@ export function nest(dir, repoPath, { rename = renameSync } = {}) {
 
   const marker = join(root, `${STAGING_PREFIX}${process.pid}`);
   const repoDir = join(root, name);
+  // Removes the marker (a lock is retried) and reports whether the disk shows it gone.
   const dropMarker = () => {
     try {
-      unlinkSync(marker);
-    } catch { /* a marker that stays is reported as a stray entry */ }
+      retrying(() => unlink(marker));
+    } catch { /* the check below decides */ }
+    return !exists(marker);
   };
+  const markerLeft = `the marker file ${marker} could not be removed; it is safe to delete it`;
   try {
     writeFileSync(marker, name, { flag: 'wx' });
   } catch (err) {
@@ -198,8 +202,9 @@ export function nest(dir, repoPath, { rename = renameSync } = {}) {
   try {
     mkdirSync(repoDir); // fails if the name exists or appeared meanwhile; nothing is moved then
   } catch (err) {
-    dropMarker();
-    return refuse(`cannot create the folder ${repoDir} (${err.code ?? err.message}), nothing moved`);
+    const gone = dropMarker();
+    return refuse(`cannot create the folder ${repoDir} (${err.code ?? err.message}), nothing moved`
+      + (gone ? '' : `, but ${markerLeft}`));
   }
   const move = (from, to) => retrying(() => rename(from, to));
   let at = null;
@@ -215,11 +220,13 @@ export function nest(dir, repoPath, { rename = renameSync } = {}) {
       return refuse(`moving '${at}' failed (${code}) and the rollback is incomplete; ${back.detail}. `
         + `Move these back into ${root} by hand.`, back.moved);
     }
-    dropMarker();
-    return refuse(`moving '${at}' failed (${code}); rolled back, nothing changed. `
-      + 'Close programs that use files in the folder (dev server, editor, terminal), then retry.');
+    const advice = 'Close programs that use files in the folder (dev server, editor, terminal), then retry.';
+    if (!dropMarker()) {
+      return refuse(`moving '${at}' failed (${code}); every entry is back, but ${markerLeft}. ${advice}`);
+    }
+    return refuse(`moving '${at}' failed (${code}); rolled back, nothing changed. ${advice}`);
   }
-  dropMarker();
+  const markerStays = !dropMarker();
 
   // A safe.directory entry names the old path, so a foreign-owned repo is "dubious" at the new one.
   // nest checks with a one-off entry for the new path and leaves the global config to the user.
@@ -250,10 +257,11 @@ export function nest(dir, repoPath, { rename = renameSync } = {}) {
         .filter(Boolean).join('; ')}`;
   // An entry created in the folder while the move ran stays outside the repo. The repo itself is
   // complete and verified, so this is a warning, not a failure.
-  const stray = listOf(root).filter((e) => e !== name);
+  const stray = listOf(root).filter((e) => e !== name && !(markerStays && join(root, e) === marker));
   const warnings = stray.length
     ? [`${stray.join(', ')} appeared in ${root} during the move and stayed outside ${repoDir}; move it into the repo if it belongs there`]
     : [];
+  if (markerStays) warnings.push(`${markerLeft[0].toUpperCase()}${markerLeft.slice(1)}`);
   return {
     ok,
     ...(reason && { reason }),
