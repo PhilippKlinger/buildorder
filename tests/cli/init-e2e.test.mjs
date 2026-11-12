@@ -4,7 +4,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanup, cli, codeRepo, gitIn, gitInit, tmp } from '../helpers/cli.mjs';
+import { cleanup, cli, codeRepo, gitIn, tmp } from '../helpers/cli.mjs';
 
 after(cleanup);
 
@@ -21,7 +21,7 @@ const snapshot = (dir) => ({
   status: gitIn(dir, 'status', '--porcelain', '--untracked-files=all'),
 });
 
-test('new django project in an empty folder: plan, git init, scaffold, starter commit, verify, finalize, checklist', () => {
+test('new django project in an empty folder: plan, scaffold with git init, starter commit, verify, finalize, checklist', () => {
   const root = tmp('init new');
   assert.equal(json('detect', root).suggestion, 'new');
   const repo = join(root, 'shop app');
@@ -32,12 +32,12 @@ test('new django project in an empty folder: plan, git init, scaffold, starter c
   assert.ok(plan.files.every((f) => f.state === 'create'));
   assert.equal(existsSync(repo), false);
 
-  // Step 3: git init (as the skill does, on main), scaffold, standard --apply.
-  gitInit(repo);
+  // Step 3: scaffold creates the repo (git init on main), then standard --apply.
+  json('scaffold', root, '--lang', 'en', '--new-repo', 'shop app', '--visibility', 'public');
+  assert.equal(gitIn(repo, 'symbolic-ref', 'HEAD'), 'refs/heads/main');
   for (const [k, v] of [['user.name', 'test'], ['user.email', ['test', 'localhost'].join('@')], ['commit.gpgsign', 'false']]) {
     gitIn(repo, 'config', k, v);
   }
-  json('scaffold', root, '--lang', 'en', '--repo', 'shop app', '--visibility', 'public');
   const applied = json('standard', repo, ...options, '--apply');
   assert.deepEqual(applied.created, plan.files.map((f) => f.path));
   assert.deepEqual(applied.workspace, { dir: root, recorded: true });

@@ -3,7 +3,7 @@ name: init
 description: Sets up a Buildorder workspace in this folder in one guided run, for a new project (empty folder) or one existing repo. Checks the folder, runs a short interview, shows the plan and writes only after the user's OK.
 argument-hint: "[what the project is about]"
 disable-model-invocation: true
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" nest *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" nest *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" scaffold *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" scaffold *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" finalize *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" finalize *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-checklist *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-checklist *), Bash(git init *), PowerShell(git init *), Read, Grep, Glob, AskUserQuestion
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" nest *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" nest *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" scaffold *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" scaffold *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" finalize *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" finalize *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-checklist *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-checklist *), Read, Grep, Glob, AskUserQuestion
 ---
 
 # Init
@@ -85,9 +85,8 @@ Ask: set it up like this, or change something. A change goes back into the plan.
 ## 3. Write
 
 **New project:**
-1. `git init -b main "<repo>"`, unless `<repo>/.git` exists.
-2. `scaffold . --lang <lang> --repo "<repo>" --visibility <v>`
-3. `standard "<repo>" <options of the plan> --apply`: one commit in the repo, never a push. If git has no
+1. `scaffold . --lang <lang> --new-repo "<repo>" --visibility <v>`: it creates the repo with `git init` on `main`.
+2. `standard "<repo>" <options of the plan> --apply`: one commit in the repo, never a push. If git has no
    identity, give the user the two `git config` commands to run, then repeat.
 
 **Existing project:**

@@ -73,7 +73,8 @@ test('init ships, runs only when the user invokes it, and injects the folder fin
 const toolRules = (name) => (frontmatter(read(name))['allowed-tools'] ?? '')
   .split(/,\s*(?![^()]*\))/).map((r) => r.trim()).filter(Boolean);
 
-test('init allows only exact CLI commands and git init, no blanket Bash, PowerShell, Write or Edit', () => {
+// No git rule: `git init *` would also allow --template (hooks) and --separate-git-dir; scaffold --new-repo inits.
+test('init allows only exact CLI commands: no git, no blanket Bash, PowerShell, Write or Edit', () => {
   const rules = toolRules('init');
   assert.ok(rules.length > 0);
   for (const rule of rules) {
@@ -85,7 +86,7 @@ test('init allows only exact CLI commands and git init, no blanket Bash, PowerSh
     const cmd = m[2];
     const sub = cmd.startsWith(`node ${CLI} `) ? cmd.slice(`node ${CLI} `.length) : null;
     const name = sub?.match(/^([a-z-]+) \*$/)?.[1];
-    assert.ok(cmd === 'git init *' || INIT_COMMANDS.includes(name), `${rule}: only exact CLI commands and git init`);
+    assert.ok(INIT_COMMANDS.includes(name), `${rule}: only exact CLI commands`);
   }
 });
 

@@ -5,6 +5,7 @@
 //   node buildorder.mjs nest [dir] [name]
 //   node buildorder.mjs status [dir] [--json]   (plain text unless --json)
 //   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]... [--visibility public|private]
+//                                [--new-repo <name>]   (git init -b main of the new project's repo)
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
 //   node buildorder.mjs github-checklist [dir]   (writes docs/github-settings.md and the ruleset; no API call)
@@ -38,8 +39,9 @@ const COMMANDS = {
       name: { type: 'string' },
       repo: { type: 'string', multiple: true },
       visibility: { type: 'string' },
+      'new-repo': { type: 'string' },
     },
-    run: (dir, _args, opts) => scaffold(dir, opts),
+    run: (dir, _args, { 'new-repo': newRepo, ...opts }) => scaffold(dir, { ...opts, newRepo }),
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
   finalize: { args: 0, check: true, run: (dir) => finalize(dir) },

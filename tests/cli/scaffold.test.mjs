@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanup, cli, codeRepo, tmp, write } from '../helpers/cli.mjs';
+import { cleanup, cli, codeRepo, gitIn, tmp, write } from '../helpers/cli.mjs';
 
 after(cleanup);
 
@@ -114,6 +114,38 @@ test('--visibility records the visibility on each repo entry, for /buildorder:se
   codeRepo(null, undefined, { dir: join(dir, 'app') });
   scaffold(dir, '--visibility', 'private');
   assert.deepEqual(wsOf(dir).repos, [{ path: 'app', isCode: true, stacks: ['angular'], visibility: 'private' }]);
+});
+
+test('--new-repo creates the code repo with git init on main and records only it; a rerun keeps it', () => {
+  const dir = tmp('scaffold new repo');
+  const out = scaffold(dir, '--new-repo', 'shop app', '--visibility', 'public');
+  assert.equal(out.ok, true);
+  const repo = join(dir, 'shop app');
+  assert.ok(existsSync(join(repo, '.git')));
+  assert.equal(gitIn(repo, 'symbolic-ref', 'HEAD'), 'refs/heads/main');
+  assert.deepEqual(wsOf(dir).repos, [{ path: 'shop app', isCode: false, stacks: [], visibility: 'public' }]);
+
+  const again = scaffold(dir, '--new-repo', 'shop app');
+  assert.deepEqual(again.created, []);
+  assert.equal(gitIn(repo, 'symbolic-ref', 'HEAD'), 'refs/heads/main');
+});
+
+test('--new-repo refuses a bad name and a folder that exists without git, and writes nothing', () => {
+  const bad = tmp('scaffold new repo bad');
+  for (const name of ['a/b', '..', '../out']) {
+    const r = cli('scaffold', bad, '--new-repo', name);
+    assert.equal(r.status, 1, name);
+    assert.match(r.stderr, /^buildorder: invalid --new-repo /, name);
+  }
+  assert.deepEqual(readdirSync(bad), []);
+
+  const taken = tmp('scaffold new repo taken');
+  write(taken, { 'app/notes.txt': 'mine\n' });
+  const r = cli('scaffold', taken, '--new-repo', 'app');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^buildorder: --new-repo 'app' exists and is not a git repo/);
+  assert.deepEqual(readdirSync(taken), ['app']);
+  assert.deepEqual(readdirSync(join(taken, 'app')), ['notes.txt']);
 });
 
 test('refuses folders that are no place for a workspace, and writes nothing', () => {
