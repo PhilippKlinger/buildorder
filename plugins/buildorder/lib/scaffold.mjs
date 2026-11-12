@@ -87,24 +87,27 @@ function initRoot(root) {
 
 /** A root-anchored .gitignore line for the repo folder `path`; glob characters match literally. */
 const ignoreLine = (path) => `/${path.replace(/[\\*?[]/g, '\\$&')}/`;
+// Claude Code's machine-local settings (permission answers): never part of the docs repo.
+const LOCAL_SETTINGS = '/.claude/settings.local.json';
+// `app`, `app/`, `/app` and `/app/` all name the top-level app; compared without the slashes.
+const bare = (line) => line.replace(/^\//, '').replace(/\/$/, '');
 
 /**
- * Lists every repo folder (relative paths, '' is the root) in the root's .gitignore, so the docs repo
- * never adds a nested repo. A new file goes through `put`; an existing one is never rewritten: the missing
- * lines are appended, and without any it counts as skipped. Returns the lines added.
+ * The root's .gitignore: Claude Code's local settings and every repo folder (relative paths, '' is the
+ * root), so the docs repo never adds a nested repo or machine-local file. A new file goes through `put`;
+ * an existing one is never rewritten: the missing lines are appended, and without any it counts as
+ * skipped. Returns the lines added.
  */
 function ignoreRepos(root, paths, put, skipped) {
-  const lines = [...new Set(paths.filter((p) => p !== '').map(ignoreLine))];
+  const lines = [...new Set([LOCAL_SETTINGS, ...paths.filter((p) => p !== '').map(ignoreLine)])];
   const file = join(root, '.gitignore');
   if (!existsSync(file)) {
-    if (lines.length) put('.gitignore', lines.map((l) => `${l}\n`).join(''));
+    put('.gitignore', lines.map((l) => `${l}\n`).join(''));
     return lines;
   }
   const text = readFileSync(file, 'utf8');
-  // `app`, `app/`, `/app` and `/app/` all keep the top-level folder app out.
-  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-    .map((l) => `/${l.replace(/^\//, '').replace(/\/$/, '')}/`));
-  const missing = lines.filter((l) => !have.has(l));
+  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map(bare));
+  const missing = lines.filter((l) => !have.has(bare(l)));
   if (!missing.length) {
     skipped.push('.gitignore');
     return [];
@@ -121,7 +124,7 @@ function ignoreRepos(root, paths, put, skipped) {
  * there with `git init` on main and record it). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * The root becomes a git repo without a commit (`rootRepo`: created | existing), and its .gitignore lists
- * every recorded repo folder (`ignored`: the lines added).
+ * every repo folder plus Claude Code's local settings (`ignored`: the lines added).
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
 export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {

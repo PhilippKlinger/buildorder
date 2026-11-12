@@ -7,7 +7,9 @@ import { cleanup, cli, codeRepo, commitAll, gitIn, gitInit, tmp, write } from '.
 after(cleanup);
 
 const DOC_FILES = ['HANDOFF.md', 'SPRINT.md', 'BACKLOG.md', 'BACKLOG_ARCHIVE.md', 'DECISIONS.md', 'assumptions.md'];
-const ALL_FILES = ['.claude/workspace.json', 'CLAUDE.md', ...DOC_FILES];
+// .gitignore keeps the machine-local Claude settings (and every repo folder) out of the docs repo.
+const ALL_FILES = ['.claude/workspace.json', 'CLAUDE.md', ...DOC_FILES, '.gitignore'];
+const LOCAL = '/.claude/settings.local.json';
 const DOCS = {
   handoff: 'HANDOFF.md',
   sprint: 'SPRINT.md',
@@ -73,12 +75,17 @@ test('existing files are kept and a second run changes nothing', () => {
   for (const f of ALL_FILES) assert.equal(read(dir, f), before[f], `${f} unchanged`);
 });
 
-test('Claude Code local settings in .claude do not block and stay as they are', () => {
+test('Claude Code local settings in .claude do not block, stay as they are and stay out of the docs repo', () => {
   const dir = tmp('scaffold local settings');
   write(dir, { '.claude/settings.local.json': '{ "permissions": {} }\n' });
   const out = scaffold(dir);
   assert.deepEqual(sorted(out.created), sorted(ALL_FILES));
   assert.equal(read(dir, '.claude/settings.local.json'), '{ "permissions": {} }\n');
+  assert.equal(read(dir, '.gitignore'), `${LOCAL}\n`);
+  assert.deepEqual(out.ignored, [LOCAL]);
+  assert.equal(gitIn(dir, 'check-ignore', '.claude/settings.local.json'), '.claude/settings.local.json');
+  assert.doesNotMatch(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), /settings\.local\.json/,
+    'never part of the first docs commit');
 });
 
 test('a rerun without --lang and --name keeps those of the workspace', () => {
@@ -191,16 +198,16 @@ test('a new workspace root becomes a git repo on main without a commit, and ever
   assert.equal(gitIn(dir, 'symbolic-ref', 'HEAD'), 'refs/heads/main');
   assert.equal(gitIn(dir, 'rev-list', '--all', '--count'), '0', 'scaffold makes no commit');
   assert.ok(out.created.includes('.gitignore'));
-  assert.equal(read(dir, '.gitignore'), '/app/\n/shop app/\n');
-  assert.deepEqual(out.ignored, ['/app/', '/shop app/']);
+  assert.equal(read(dir, '.gitignore'), `${LOCAL}\n/app/\n/shop app/\n`);
+  assert.deepEqual(out.ignored, [LOCAL, '/app/', '/shop app/']);
   const untracked = gitIn(dir, 'status', '--porcelain', '--untracked-files=all').split('\n').map((l) => l.slice(3));
-  assert.deepEqual(sorted(untracked), sorted(['.gitignore', ...ALL_FILES]), 'the nested repos are never added');
+  assert.deepEqual(sorted(untracked), sorted(ALL_FILES), 'the nested repos are never added');
 
   const again = scaffold(dir);
   assert.equal(again.rootRepo, 'existing');
   assert.deepEqual(again.ignored, []);
   assert.ok(again.skipped.includes('.gitignore'));
-  assert.equal(read(dir, '.gitignore'), '/app/\n/shop app/\n');
+  assert.equal(read(dir, '.gitignore'), `${LOCAL}\n/app/\n/shop app/\n`);
 });
 
 test('a root that is a repo or lies inside one is left alone; an existing .gitignore only gets the missing entries', () => {
@@ -214,8 +221,8 @@ test('a root that is a repo or lies inside one is left alone; an existing .gitig
   const out = scaffold(own);
   assert.equal(out.rootRepo, 'existing');
   assert.equal(gitIn(own, 'rev-parse', 'HEAD'), head, 'no commit');
-  assert.equal(read(own, '.gitignore'), 'node_modules/\n/app/\n/lib/\n');
-  assert.deepEqual(out.ignored, ['/lib/']);
+  assert.equal(read(own, '.gitignore'), `node_modules/\n/app/\n${LOCAL}\n/lib/\n`);
+  assert.deepEqual(out.ignored, [LOCAL, '/lib/']);
   assert.ok(!out.created.includes('.gitignore') && !out.skipped.includes('.gitignore'));
 
   const parent = tmp('scaffold parent repo');
@@ -227,5 +234,12 @@ test('a root that is a repo or lies inside one is left alone; an existing .gitig
   const nested = scaffold(inner);
   assert.equal(nested.rootRepo, 'existing');
   assert.equal(existsSync(join(inner, '.git')), false, 'no repo inside the parent repo');
-  assert.equal(read(inner, '.gitignore'), '/app/\n');
+  assert.equal(read(inner, '.gitignore'), `${LOCAL}\n/app/\n`);
+  // A line the user already has in another spelling counts as present.
+  write(inner, { '.gitignore': '.claude/settings.local.json\n' });
+  const kept = scaffold(inner);
+  assert.equal(kept.rootRepo, 'existing');
+  assert.equal(existsSync(join(inner, '.git')), false, 'no repo inside the parent repo');
+  assert.equal(read(inner, '.gitignore'), '.claude/settings.local.json\n/app/\n');
+  assert.deepEqual(kept.ignored, ['/app/']);
 });

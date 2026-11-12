@@ -73,7 +73,8 @@ Pass `--stack` only with a stack that has a module (today `django`), never anoth
 Show compactly:
 - **Workspace:** `CLAUDE.md`, `.claude/workspace.json`, the six doc-map files, `docs/github-settings.md`,
   `docs/github-ruleset.json`; for an existing project also the audit file in `docs/audits/`. The folder becomes
-  a private docs repo (`git init`, no commit) unless it already is one, with the repo folders in `.gitignore`.
+  a private docs repo (`git init`, no commit) unless it already is one, with the repo folders and
+  `.claude/settings.local.json` in `.gitignore`.
 - **Repo:** new project: the plan's `files` plus, with `django`, the module's tested starter, in one commit, no push. Existing project: unchanged; every
   `missing` item becomes a backlog task.
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be

@@ -39,7 +39,8 @@ Start no new features or fixes.
 6. **Open questions:** list for the user, as questions, every push and pull request still open: each branch ahead of
    its upstream or without one, with the repo it belongs to. If the workspace root is a git repo, also offer to commit
    the doc changes there as `docs: session handoff <YYYY-MM-DD>`. `/buildorder:init` leaves the root without a commit,
-   so the first such commit also takes `CLAUDE.md`, `.claude/` and `.gitignore`; the code repos stay out (gitignored).
+   so the first such commit also takes `CLAUDE.md`, `.claude/` and `.gitignore`; the code repos and
+   `.claude/settings.local.json` stay out (gitignored).
 
 ## Output
 
