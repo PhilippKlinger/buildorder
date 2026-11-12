@@ -5,6 +5,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [0.2.0] - 2026-11-12
+
+### Added
+
+- README in full: quickstart, how buildorder differs from the built-in `/init`, what CI checks, the security model
+  with the known limits of the hooks, and a context diagram.
+- `github-checklist` writes `docs/github-settings.md` in the workspace docs language (German or English); the `gh`
+  commands are identical in both.
+
+### Changed
+
+- `/buildorder:init` now says that the Django starter has neither `auth` nor `admin` and recommends "no personal
+  data, no login" unless the idea says otherwise.
+- buildorder's own CI: zizmor and gitleaks run through their official actions (gitleaks pinned to 8.30.1), and a
+  weekly OpenSSF Scorecard run was added.
+
+### Fixed
+
+- `standard --apply` refreshes `isCode` and `stacks` of the repo entry in `workspace.json`, so a starter commit no
+  longer leaves the empty-repo state behind.
+- The deploy templates explain the `uses: $/...` self-repository call (runner 2.336.0 or newer) in a comment above
+  the line, so it no longer reads like a typo.
+
 ## [0.1.1] - 2026-11-12
 
 ### Fixed
@@ -39,5 +62,6 @@ First pre-release.
   handoff reminder on stop.
 - Skills: `/buildorder:init`, `kickoff`, `handoff`, `assess`, `review` and `secure`.
 
+[0.2.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.2.0
 [0.1.1]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.1
 [0.1.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.0
