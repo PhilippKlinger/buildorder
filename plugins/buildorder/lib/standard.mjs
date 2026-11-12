@@ -340,8 +340,18 @@ function itemsOf(root, model, sel) {
   });
 }
 
-function notesOf(sel, { image, cd }) {
+/** Supported stacks the repo shows besides the one the standard is built for (a module covers one stack). */
+function uncoveredStacks(root, sel) {
+  const { supported } = detectStacks(root);
+  return supported.filter((s) => STACK_IDS.includes(s) && s !== sel.stackId);
+}
+
+function notesOf(root, sel, { image, cd }) {
   const notes = [];
+  for (const id of uncoveredStacks(root, sel)) {
+    notes.push(`'${id}' is also detected but not covered: the stack module '${sel.stackId}' sets up lint, tests with `
+      + `coverage, build and dependency audit for '${sel.stackId}' only; add the checks for '${id}' to ci.yml by hand`);
+  }
   if (!sel.stack) {
     notes.push(`${stackGap(sel)}: lint, tests with coverage, build and dependency audit are not set up; `
       + 'add them to ci.yml by hand');
@@ -379,7 +389,7 @@ function report(root, model, sel) {
     items: itemsOf(root, model, sel),
     files: filesOf(sel).map(({ path }) => ({ path, state: existsSync(join(root, ...path.split('/'))) ? 'exists' : 'create' })),
     deviations: sel.deviations,
-    notes: notesOf(sel, { image, cd }),
+    notes: notesOf(root, sel, { image, cd }),
   };
 }
 
