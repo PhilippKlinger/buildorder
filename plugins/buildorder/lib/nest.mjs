@@ -1,7 +1,11 @@
 // nest: turns a folder that is itself a code repo into a workspace in place. The folder's whole
 // content (`.git` and dotfiles included) moves one level down into <dir>/<name>/; the folder
-// itself stays where it is, so a session running inside it keeps working.
-import { lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync } from 'node:fs';
+// itself stays where it is, so a session running inside it keeps working. Entries move straight
+// into the final folder; renaming a folder that already holds entries fails on Windows while a
+// watch handle (Claude Code watches `.claude/`) is open.
+import {
+  lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { detect, validName } from './detect.mjs';
 import { gitResult } from './git.mjs';
@@ -73,14 +77,12 @@ function repoState(cwd, safeDirectory) {
 }
 
 /**
- * Puts every entry back from the staging folder after a failed move and reports what the
+ * Puts every entry back from the repo folder `holder` after a failed move and reports what the
  * folder looks like afterwards. An entry whose original place is taken again (recreated by an
  * editor or dev server meanwhile) is never overwritten. A rename may fail after it moved the
  * entry, so the outcome is read from the disk, not from which renames threw.
  */
-function rollBack({ root, name, staging, entries, move }) {
-  // Normally everything waits in staging; a final rename that failed after it succeeded left it under the final name.
-  const holder = !exists(staging) && exists(join(root, name)) ? join(root, name) : staging;
+function rollBack({ root, holder, entries, move }) {
   const taken = new Set();
   for (const e of [...entries].reverse()) {
     const from = join(holder, e);
@@ -121,9 +123,13 @@ function rollBack({ root, name, staging, entries, move }) {
  * `ok: false` with a reason; on a failed move the original layout is restored, and the reason
  * says "nothing changed" only when a check of the disk proves it.
  *
- * The move goes through a staging folder inside `dir`, renamed to the final name at the end,
- * so the final name never half-exists and a name equal to an entry of the repo (`src`) cannot
- * clash with it. Afterwards HEAD and `git status --ignored` must match the state before. A
+ * The final folder is created first and every entry is moved straight into it. A folder that
+ * already holds moved entries is never renamed: on Windows a watch handle on `.claude/` (Claude
+ * Code keeps one) makes such a rename fail with EPERM. Since the entries are read before the
+ * folder exists and the name is checked against them, the folder cannot clash with an entry.
+ * An empty marker file `.buildorder-nest-<pid>` (content: the final name) exists from before the
+ * first move until success or a complete rollback; a killed run leaves it and the next run
+ * refuses. Afterwards HEAD and `git status --ignored` must match the state before. A
  * mismatch leaves the files moved (undoing a finished move would be a second risky move).
  *
  * `options.rename` is a test-only seam (same signature as fs.renameSync) for simulating a
@@ -135,16 +141,26 @@ export function nest(dir, repoPath, { rename = renameSync } = {}) {
   const refuse = (reason, moved = 0) => ({
     ok: false, reason, dir: root, repoPath: name, moved, headUnchanged: null, statusUnchanged: null,
   });
-  // First of all: in an interrupted run the .git sits inside the staging folder, so detect would give a wrong reason.
-  // A staging folder left by a killed or failed run holds repo files; moving it would bury them.
+  // First of all: in an interrupted run the .git sits in the half-filled target folder or an old staging
+  // folder, so detect would give a wrong reason. Moving such a leftover would bury repo files.
   let top = [];
   try {
     top = readdirSync(root);
   } catch { /* not a readable folder: detect reports that */ }
   const leftover = top.find((e) => STAGING.test(e));
   if (leftover) {
-    return refuse(`an earlier nest left ${join(root, leftover)}; move its contents back into ${root} `
-      + 'and remove it, then retry');
+    const path = join(root, leftover);
+    if (lstatSync(path).isDirectory()) { // staging folder of nest 0.1.0
+      return refuse(`an earlier nest left ${path}; move its contents back into ${root} `
+        + 'and remove it, then retry');
+    }
+    let target = '';
+    try {
+      target = readFileSync(path, 'utf8').trim();
+    } catch { /* unreadable: the hint below is left out */ }
+    const hint = target ? ` and may have moved entries into ${join(root, target)}` : '';
+    return refuse(`an earlier nest left ${path}${hint}; move those entries back into ${root} `
+      + 'and remove the marker file and the empty folder, then retry');
   }
   const d = detect(root);
 
@@ -167,34 +183,43 @@ export function nest(dir, repoPath, { rename = renameSync } = {}) {
   const before = repoState(root);
   if (before.error) return refuse(`git cannot read the repo, nothing moved: ${before.error}`);
 
-  const staging = join(root, `${STAGING_PREFIX}${process.pid}`);
+  const marker = join(root, `${STAGING_PREFIX}${process.pid}`);
+  const repoDir = join(root, name);
+  const dropMarker = () => {
+    try {
+      unlinkSync(marker);
+    } catch { /* a marker that stays is reported as a stray entry */ }
+  };
   try {
-    mkdirSync(staging);
+    writeFileSync(marker, name, { flag: 'wx' });
   } catch (err) {
-    return refuse(`cannot create the staging folder ${staging} (${err.code ?? err.message}), nothing moved`);
+    return refuse(`cannot create the marker file ${marker} (${err.code ?? err.message}), nothing moved`);
+  }
+  try {
+    mkdirSync(repoDir); // fails if the name exists or appeared meanwhile; nothing is moved then
+  } catch (err) {
+    dropMarker();
+    return refuse(`cannot create the folder ${repoDir} (${err.code ?? err.message}), nothing moved`);
   }
   const move = (from, to) => retrying(() => rename(from, to));
-  const repoDir = join(root, name);
   let at = null;
   try {
     for (const e of entries) {
       at = e;
-      move(join(root, e), join(staging, e));
+      move(join(root, e), join(repoDir, e));
     }
-    at = name;
-    // A POSIX rename replaces an empty folder silently; one that appeared meanwhile is not ours to replace.
-    if (exists(repoDir)) throw Object.assign(new Error(`${name} appeared during the move`), { code: 'EEXIST' });
-    move(staging, repoDir);
   } catch (err) {
     const code = err?.code ?? err?.message;
-    const back = rollBack({ root, name, staging, entries, move });
+    const back = rollBack({ root, holder: repoDir, entries, move });
     if (!back.complete) {
       return refuse(`moving '${at}' failed (${code}) and the rollback is incomplete; ${back.detail}. `
         + `Move these back into ${root} by hand.`, back.moved);
     }
+    dropMarker();
     return refuse(`moving '${at}' failed (${code}); rolled back, nothing changed. `
       + 'Close programs that use files in the folder (dev server, editor, terminal), then retry.');
   }
+  dropMarker();
 
   // A safe.directory entry names the old path, so a foreign-owned repo is "dubious" at the new one.
   // nest checks with a one-off entry for the new path and leaves the global config to the user.
