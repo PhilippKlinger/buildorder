@@ -213,11 +213,14 @@ jobs:
           persist-credentials: false
       # Personal-account repo: no GITLEAKS_LICENSE needed (only organization-owned repos need one).
       # Comments are off, so read access to pull requests is enough to list their commits.
-      - name: Scan full history
+      - name: Scan for secrets
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITLEAKS_ENABLE_COMMENTS: "false"
+          # Without this the action falls back to gitleaks 8.24.3. Matches pre-commit and the generated pipeline.
+          # The action downloads the binary without checksum verification.
+          GITLEAKS_VERSION: "8.30.1"
 
   codeql:
     runs-on: ubuntu-latest
