@@ -26,6 +26,7 @@ A stack module lives in `standard/stacks/<id>/`, where `<id>` is the stack id th
 | `ci.yml` | One or more CI jobs (lint, tests with coverage, build, dependency audit), written at column 0 as `<job-id>:` mappings. They are inserted under `jobs:` of the generated `ci.yml`; `ci-ok` and the image job need them. |
 | `pre-commit.yml` | Optional. The stack's hooks as `- repo:` entries at column 0, appended to the `repos:` list of `.pre-commit-config.yaml` (formatter and linter, for example ruff). |
 | `docker/` | Files written to the repo root when `container-image` is selected (`Dockerfile`, `.dockerignore`). The image is built from `Dockerfile` in the repo root; a module without `docker/Dockerfile` gets no image job (`container-image` is skipped). |
+| `starter/` | Optional. The smallest real project of the stack with one test, which passes the module's own pipeline. `standard --apply --starter` writes it to the repo root (never overwriting a file) in the same commit as the pipeline files; it is meant for an empty repo. Without a starter, `--starter` is an error. |
 
 `stack.json`:
 

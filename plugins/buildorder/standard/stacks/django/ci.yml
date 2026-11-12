@@ -1,0 +1,98 @@
+# Django stack: lint (ruff), tests with coverage against PostgreSQL (pytest), the build checks
+# (check --deploy, collectstatic) and the dependency audit (pip-audit). Expects the starter's layout:
+# manage.py, requirements.txt and requirements-dev.txt in the repo root.
+lint:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.14.10"
+    - name: Install dependencies
+      run: python -m pip install --requirement requirements-dev.txt
+    - name: Lint
+      run: ruff check .
+    - name: Check the formatting
+      run: ruff format --check .
+
+test:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  services:
+    postgres:
+      image: postgres:18.6-trixie@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+      env:
+        # Throwaway password of the CI service container, not a secret.
+        POSTGRES_PASSWORD: postgres
+        POSTGRES_DB: app
+      ports:
+        - 5432:5432
+      options: >-
+        --health-cmd pg_isready
+        --health-interval 5s
+        --health-timeout 5s
+        --health-retries 10
+  env:
+    DATABASE_URL: postgres://postgres:postgres@localhost:5432/app
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.14.10"
+    - name: Install dependencies
+      run: python -m pip install --requirement requirements-dev.txt
+    - name: Generate a throwaway SECRET_KEY
+      run: |
+        key="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
+        echo "::add-mask::$key"
+        echo "DJANGO_SECRET_KEY=$key" >> "$GITHUB_ENV"
+    - name: Test with coverage
+      run: pytest --cov --cov-report=term-missing
+
+build:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  env:
+    DJANGO_ALLOWED_HOSTS: localhost
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.14.10"
+    - name: Install dependencies
+      run: python -m pip install --requirement requirements.txt
+    - name: Generate a throwaway SECRET_KEY
+      run: |
+        key="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
+        echo "::add-mask::$key"
+        echo "DJANGO_SECRET_KEY=$key" >> "$GITHUB_ENV"
+    - name: Check the deployment settings
+      run: python manage.py check --deploy --fail-level WARNING
+    - name: Collect static files
+      run: python manage.py collectstatic --noinput
+
+audit:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.14.10"
+    - name: Install dependencies
+      run: python -m pip install --requirement requirements-dev.txt
+    - name: Audit dependencies
+      run: pip-audit --requirement requirements.txt --requirement requirements-dev.txt

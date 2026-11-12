@@ -1,20 +1,20 @@
-// Writes the standard's repo files for the fake stack into sample repos, for the zizmor and
+// Writes the standard's repo files for the sample stacks into sample repos, for the zizmor and
 // actionlint steps in CI:
 //   node tests/helpers/standard-sample.mjs <out-dir>
-// creates <out-dir>/container, <out-dir>/webspace and <out-dir>/none (docker-cicd with that deploy target).
+// creates one folder per sample (see SAMPLES in standard.mjs): the fake stack with each CD variant
+// of docker-cicd, and the django module with deploy targets container and none.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { loadStack, render } from '../../plugins/buildorder/lib/standard.mjs';
-import { FAKE_STACKS } from './standard.mjs';
+import { render } from '../../plugins/buildorder/lib/standard.mjs';
+import { samples } from './standard.mjs';
 
 const out = process.argv[2];
 if (!out) {
   process.stderr.write('usage: node tests/helpers/standard-sample.mjs <out-dir>\n');
   process.exit(1);
 }
-const stack = loadStack('fake', FAKE_STACKS);
-for (const deploy of ['container', 'webspace', 'none']) {
-  const root = resolve(out, deploy);
+for (const { name, stack, deploy } of samples()) {
+  const root = resolve(out, name);
   for (const { path, content } of render({ stack, deploy, skip: new Set() })) {
     const abs = join(root, ...path.split('/'));
     mkdirSync(dirname(abs), { recursive: true });

@@ -4,14 +4,16 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { walk } from '../../plugins/buildorder/lib/fsx.mjs';
-import { loadStack, render } from '../../plugins/buildorder/lib/standard.mjs';
+import { STACKS_DIR, loadStack, render } from '../../plugins/buildorder/lib/standard.mjs';
 import { cleanup, tempDir } from '../helpers/cli.mjs';
 import { repoRoot } from '../helpers/repo.mjs';
-import { FAKE_STACKS, jobIds, jobText, needsOf, runLines, usesLines } from '../helpers/standard.mjs';
+import { FAKE_STACKS, jobIds, jobText, needsOf, runLines, samples, usesLines } from '../helpers/standard.mjs';
 
 after(cleanup);
 
 const fake = () => loadStack('fake', FAKE_STACKS);
+// Every stack module that ships, plus the fake one: the template rules hold for all of them.
+const stacks = () => [fake(), loadStack('django')];
 const files = (opts) => Object.fromEntries(render(opts).map((f) => [f.path, f.content]));
 const CI = '.github/workflows/ci.yml';
 const CORE_JOBS = ['gitleaks', 'zizmor', 'pre-commit', 'dependency-review', 'codeql'];
@@ -23,6 +25,7 @@ test('loadStack reads a stack module and returns null without one', () => {
   assert.deepEqual(stack.codeql, { language: 'python', buildMode: 'none' });
   assert.deepEqual(stack.jobs, ['lint', 'test']);
   assert.deepEqual(stack.docker.map((f) => f.path), ['Dockerfile']);
+  assert.deepEqual(stack.starter.map((f) => f.path), ['README.md', 'src/main.fake']);
   assert.equal(loadStack('vue', FAKE_STACKS), null);
   assert.equal(loadStack('fake', join(FAKE_STACKS, 'missing')), null);
 });
@@ -110,10 +113,13 @@ test('every template and generated uses: is pinned to a commit SHA with a versio
   const sources = [
     ...walk(join(repoRoot, 'plugins', 'buildorder', 'templates', 'repo')).map((f) => join('plugins', 'buildorder', 'templates', 'repo', f)),
     ...walk(FAKE_STACKS).map((f) => join('tests', 'fixtures', 'stacks', f)),
+    ...walk(STACKS_DIR).map((f) => join('plugins', 'buildorder', 'standard', 'stacks', f)),
   ].filter((f) => /\.ya?ml$/.test(f));
   const texts = sources.map((f) => [f, readFileSync(join(repoRoot, f), 'utf8')]);
-  for (const deploy of ['container', 'webspace']) {
-    for (const f of render({ stack: fake(), deploy, skip: new Set() })) texts.push([`${deploy}:${f.path}`, f.content]);
+  for (const stack of stacks()) {
+    for (const deploy of ['container', 'webspace']) {
+      for (const f of render({ stack, deploy, skip: new Set() })) texts.push([`${stack.id}:${deploy}:${f.path}`, f.content]);
+    }
   }
   let count = 0;
   for (const [name, text] of texts) {
@@ -147,8 +153,7 @@ function envBlockLines(yaml) {
 
 test('no runner, steps, job or matrix context in workflow-level or job-level env', () => {
   const variants = [
-    { stack: fake(), deploy: 'container', skip: new Set() },
-    { stack: fake(), deploy: 'webspace', skip: new Set() },
+    ...stacks().flatMap((stack) => ['container', 'webspace'].map((deploy) => ({ stack, deploy, skip: new Set() }))),
     { stack: null, deploy: 'none', skip: new Set() },
   ];
   // The probe: a job-level env with runner.temp is what GitHub refuses ("Unrecognized named-value: 'runner'").
@@ -164,19 +169,21 @@ test('no runner, steps, job or matrix context in workflow-level or job-level env
   }
 });
 
-test('the CI sample helper writes every CD variant for the zizmor and actionlint steps', () => {
+test('the CI sample helper writes every sample (fake CD variants, django) for the zizmor and actionlint steps', () => {
   const out = tempDir('standard sample');
   execFileSync(process.execPath, [join(repoRoot, 'tests', 'helpers', 'standard-sample.mjs'), out], { stdio: 'pipe' });
-  for (const deploy of ['container', 'webspace', 'none']) {
-    for (const { path, content } of render({ stack: fake(), deploy, skip: new Set() })) {
-      assert.equal(readFileSync(join(out, deploy, ...path.split('/')), 'utf8'), content, `${deploy}: ${path}`);
+  const list = samples();
+  assert.deepEqual(list.map((s) => s.name), ['container', 'webspace', 'none', 'django-container', 'django-none']);
+  for (const { name, stack, deploy } of list) {
+    for (const { path, content } of render({ stack, deploy, skip: new Set() })) {
+      assert.equal(readFileSync(join(out, name, ...path.split('/')), 'utf8'), content, `${name}: ${path}`);
     }
   }
 });
 
 test('generated workflows: least privilege, no persisted credentials, no expressions in run', () => {
-  for (const deploy of ['container', 'webspace']) {
-    for (const { path, content } of render({ stack: fake(), deploy, skip: new Set() })) {
+  for (const [stack, deploy] of stacks().flatMap((s) => [[s, 'container'], [s, 'webspace']])) {
+    for (const { path, content } of render({ stack, deploy, skip: new Set() })) {
       if (!path.startsWith('.github/workflows/')) continue;
       assert.match(content, /^permissions: \{\}$/m, `${path}: no workflow-wide token`);
       for (const id of jobIds(content)) assert.match(jobText(content, id), /^ {4}permissions:/m, `${path}: ${id} sets permissions`);
