@@ -18,7 +18,8 @@ First pre-release.
   read-only `plan`.
 - Workspace: doc-map templates in English and German (`CLAUDE.md`, handoff, sprint, backlog, backlog archive,
   decisions, assumptions), `.claude/workspace.json` as control file, and the GitHub settings checklist with a
-  ruleset file. Nothing is sent to GitHub.
+  ruleset file. The workspace root becomes a private git repo for the docs, with the code repos and local
+  Claude settings ignored. Nothing is sent to GitHub.
 - Standard: a model of mandatory, standard and optional items; generated CI with `ci-ok` gate, gitleaks,
   Dependency Review, CodeQL, zizmor workflow lint, SHA-pinned actions, Dependabot and pre-commit. Deselecting an
   item requires a reason, which is recorded.

@@ -31,7 +31,7 @@ It does the following:
 
 1. Checks the folder and runs a short interview (at most 8 questions).
 2. Shows the plan and writes only after your confirmation.
-3. Creates the workspace with its doc-map and the GitHub settings checklist.
+3. Creates the workspace (a private git repo for the docs) with its doc-map and the GitHub settings checklist.
 4. New project: writes the standard pipeline and a tested starter into the repo in one commit.
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
 5. Pushes nothing.
