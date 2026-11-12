@@ -11,7 +11,7 @@ const WORKFLOW = ['assess', 'handoff', 'kickoff'];
 const CLI = '"${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs"';
 const STATUS_INJECTION = '!`node ' + CLI + ' status`';
 
-const UMLAUT = /[äöüÄÖÜß]/;
+const UMLAUT = new RegExp(`[${String.fromCharCode(0xe4, 0xf6, 0xfc, 0xc4, 0xd6, 0xdc, 0xdf)}]`); // built from codes: this file stays ASCII
 // Common German function words that have no English homograph.
 const GERMAN_WORDS = /\b(und|nicht|oder|der|das|ist|wird|sind|eine|auch|wenn|nur)\b/i;
 
