@@ -127,7 +127,8 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
 
 1. `verify .`: fix every problem and run it again; stop and name what cannot be fixed. Name the `warnings`.
 2. `finalize .`: sets `initPhase: done`.
-3. `github-checklist .`: writes the checklist with ready commands. Never create a repo, push or call the GitHub
+3. `github-checklist . [--repo <owner/name>]`: writes the checklist with ready commands. Pass `--repo` when the user
+   named the GitHub repo in the interview and the repo has no remote yet. Never create a repo, push or call the GitHub
    API, even when `gh` is logged in.
 
 ## 6. Close

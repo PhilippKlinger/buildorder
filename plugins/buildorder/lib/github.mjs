@@ -42,11 +42,15 @@ export const RULESET_BODY = {
 
 const GITHUB_REMOTE = /github\.com[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i;
 
-/** `{ slug, remote }`: `owner/name` from a GitHub origin, else the placeholder `OWNER/<folder>`. */
-function slugOf(abs) {
+/**
+ * `{ slug, remote }`: `owner/name` from a GitHub origin, else the `given` one (from the interview), else
+ * the placeholder `OWNER/<folder>`. `remote` is false only for the placeholder.
+ */
+function slugOf(abs, given) {
   const url = git(abs, ['remote', 'get-url', 'origin']);
   const m = url ? maskRemote(url).match(GITHUB_REMOTE) : null;
   if (m) return { slug: `${m[1]}/${m[2]}`, remote: true };
+  if (given) return { slug: given, remote: true };
   return { slug: `OWNER/${basename(abs).replace(/[^\w.-]+/g, '-')}`, remote: false };
 }
 
@@ -126,9 +130,11 @@ function markdown(repos, lang) {
  * job yet) into the workspace that encloses `dir`, never overwriting:
  * `{ ok, dir, files: [{ path, state: created | exists }], repos: [{ path, slug, remote, ciOk, visibility }] }`.
  * `visibility` comes from the repo entry (null when unknown); a private repo gets no secret scanning commands.
- * Throws outside a Buildorder workspace.
+ * `repo` (`owner/name`, from the interview) names the repo when it has no GitHub origin yet; a local origin wins.
+ * Throws outside a Buildorder workspace or for a malformed `repo`.
  */
-export function githubChecklist(dir) {
+export function githubChecklist(dir, { repo: given } = {}) {
+  if (given !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(given)) throw new Error('--repo must look like owner/name');
   const root = findWorkspaceRoot(dir);
   const ws = root ? loadWorkspace(root) : null;
   if (!ws) throw new Error(`not inside a Buildorder workspace: ${resolve(dir)}`);
@@ -141,7 +147,7 @@ export function githubChecklist(dir) {
     const rel = relativeTo(abs, root);
     if (!rel || !existsSync(join(abs, '.git'))) continue;
     const visibility = VISIBILITIES.includes(repo.visibility) ? repo.visibility : null;
-    repos.push({ path: rel, ...slugOf(abs), ciOk: hasCiOk(abs), visibility });
+    repos.push({ path: rel, ...slugOf(abs, given), ciOk: hasCiOk(abs), visibility });
   }
   const content = {
     [CHECKLIST]: markdown(repos, lang),

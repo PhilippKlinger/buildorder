@@ -76,6 +76,23 @@ test('an https remote gives the slug without its credentials; without a remote t
   assert.match(md, /No GitHub remote yet: after the first push, replace `OWNER\/shop-app`/);
 });
 
+test('--repo owner/name names the repo when it has no local remote; a local remote wins; a bad value is refused', () => {
+  const local = workspace('github given');
+  const r = cli('github-checklist', local, '--repo', 'acme/shop-api');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json.repos, [{ path: 'shop app', slug: 'acme/shop-api', remote: true, ciOk: true, visibility: null }]);
+  const md = read(local, 'docs/github-settings.md');
+  assert.ok(md.includes('repos/acme/shop-api/rulesets'));
+  assert.doesNotMatch(md, /OWNER|No GitHub remote yet/);
+
+  const withRemote = workspace('github given remote', SSH_REMOTE);
+  assert.equal(cli('github-checklist', withRemote, '--repo', 'acme/other').json.repos[0].slug, 'acme/shop');
+
+  const bad = cli('github-checklist', workspace('github bad repo'), '--repo', 'not a slug');
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /--repo/);
+});
+
 const LOOSE = 'docs/github-ruleset-without-checks.json';
 
 test('a repo without the ci-ok job gets a ruleset without required checks and a step to add ci-ok later', () => {

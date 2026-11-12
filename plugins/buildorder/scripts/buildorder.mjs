@@ -8,7 +8,7 @@
 //                                [--new-repo <name>]   (git init -b main of the new project's repo)
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
-//   node buildorder.mjs github-checklist [dir]   (writes docs/github-settings.md and the ruleset; no API call)
+//   node buildorder.mjs github-checklist [dir] [--repo owner/name]   (writes docs/github-settings.md and the ruleset; no API call)
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--starter] [--apply]
 //                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
@@ -50,7 +50,7 @@ const COMMANDS = {
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
   finalize: { args: 0, check: true, run: (dir) => finalize(dir) },
-  'github-checklist': { args: 0, run: (dir) => githubChecklist(dir) },
+  'github-checklist': { args: 0, options: { repo: { type: 'string' } }, run: (dir, _args, opts) => githubChecklist(dir, opts) },
   standard: {
     args: 0,
     options: {
