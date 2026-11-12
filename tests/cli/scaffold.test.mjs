@@ -1,8 +1,10 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, commitAll, gitIn, gitInit, tmp, write } from '../helpers/cli.mjs';
+import { repoRoot } from '../helpers/repo.mjs';
 
 after(cleanup);
 
@@ -22,6 +24,8 @@ const DOCS = {
 const read = (dir, rel) => readFileSync(join(dir, ...rel.split('/')), 'utf8');
 const wsOf = (dir) => JSON.parse(read(dir, '.claude/workspace.json'));
 const sorted = (a) => [...a].sort();
+const VERSION = JSON.parse(readFileSync(join(repoRoot, 'plugins', 'buildorder', '.claude-plugin', 'plugin.json'), 'utf8')).version;
+const sha = (text) => createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 
 function scaffold(dir, ...args) {
   const r = cli('scaffold', dir, ...args);
@@ -36,15 +40,18 @@ test('empty folder gets the English doc-map, CLAUDE.md and workspace.json', () =
   assert.equal(out.dir, dir);
   assert.deepEqual(sorted(out.created), sorted(ALL_FILES));
   assert.deepEqual(out.skipped, []);
-  assert.deepEqual(wsOf(dir), {
+  const { templateHashes, ...ws } = wsOf(dir);
+  assert.deepEqual(ws, {
     schemaVersion: 1,
     name: 'target dir',
+    buildorderVersion: VERSION,
     language: { docs: 'en' },
     initPhase: 'scaffolded',
     docs: DOCS,
     repos: [],
     guards: { docsOnlyNames: DOC_FILES, protectedPaths: [] },
   });
+  assert.deepEqual(sorted(Object.keys(templateHashes)), sorted(['CLAUDE.md', ...DOC_FILES]));
   assert.match(read(dir, 'CLAUDE.md'), /^# CLAUDE\.md — target dir\n/);
   assert.match(read(dir, 'HANDOFF.md'), /^# Handoff — \d{4}-\d{2}-\d{2}\n/);
   for (const f of ALL_FILES) assert.doesNotMatch(read(dir, f), /\{\{/, `${f} has no open placeholder`);
@@ -73,6 +80,28 @@ test('existing files are kept and a second run changes nothing', () => {
   assert.deepEqual(second.created, []);
   assert.deepEqual(sorted(second.skipped), sorted(ALL_FILES));
   for (const f of ALL_FILES) assert.equal(read(dir, f), before[f], `${f} unchanged`);
+});
+
+// sync updates a file only while it is byte for byte what buildorder wrote (Review Focus 4).
+test('scaffold records its version and a hash of every file it writes from a template, for sync', () => {
+  const dir = tmp('scaffold hashes');
+  write(dir, { 'SPRINT.md': 'mine\n' });
+  scaffold(dir);
+  const ws = wsOf(dir);
+  assert.equal(ws.buildorderVersion, VERSION);
+  const templates = join(repoRoot, 'plugins', 'buildorder', 'templates', 'workspace', 'en');
+  for (const f of ['CLAUDE.md', ...DOC_FILES.filter((f) => f !== 'SPRINT.md')]) {
+    assert.deepEqual(ws.templateHashes[f], { file: sha(read(dir, f)), template: sha(read(templates, f)) }, f);
+  }
+  assert.equal(ws.templateHashes['SPRINT.md'], undefined, "a file the user had is not buildorder's");
+
+  // A resume records the files it creates and keeps the earlier records.
+  const earlier = ws.templateHashes['CLAUDE.md'];
+  rmSync(join(dir, 'HANDOFF.md'));
+  scaffold(dir);
+  const resumed = wsOf(dir).templateHashes;
+  assert.deepEqual(resumed['CLAUDE.md'], earlier);
+  assert.equal(resumed['HANDOFF.md'].file, sha(read(dir, 'HANDOFF.md')));
 });
 
 test('Claude Code local settings in .claude do not block, stay as they are and stay out of the docs repo', () => {

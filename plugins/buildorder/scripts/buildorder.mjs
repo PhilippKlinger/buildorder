@@ -13,6 +13,7 @@
 //                                [--visibility public|private] [--without <id>=<reason>]... [--starter] [--apply]
 //                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
 //   node buildorder.mjs plan [repo] [same options as standard, without --starter and --apply; --gaps too]   (read-only)
+//   node buildorder.mjs sync [dir] [--apply]   (lists the template changes; --apply writes the untouched ones)
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
 // problems (verify, finalize), and a standard --apply whose commit git refused, print the JSON report and
@@ -24,6 +25,7 @@ import { githubChecklist } from '../lib/github.mjs';
 import { nest } from '../lib/nest.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
 import { gapList, standard } from '../lib/standard.mjs';
+import { sync } from '../lib/sync.mjs';
 import { finalize, verify } from '../lib/verify.mjs';
 import { formatStatus, status } from '../lib/status.mjs';
 
@@ -79,6 +81,7 @@ const COMMANDS = {
     text: gapText,
     run: (dir, _args, opts) => standard(dir, opts),
   },
+  sync: { args: 0, options: { apply: { type: 'boolean' } }, run: (dir, _args, { apply }) => sync(dir, { apply: apply === true }) },
 };
 const USAGE = `usage: buildorder.mjs <command> [dir] (commands: ${Object.keys(COMMANDS).join(', ')})`;
 
