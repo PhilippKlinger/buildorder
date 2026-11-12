@@ -100,6 +100,22 @@ test('init pre-approves only exact read-only CLI commands: no git, no write comm
   }
 });
 
+// `sync *` would also allow `sync . --apply`: only the exact read-only call is pre-approved.
+test('sync runs only when the user invokes it and pre-approves only its read-only call', () => {
+  assert.ok(skills().includes('sync'), 'skills/sync/SKILL.md missing');
+  assert.equal(frontmatter(read('sync'))['disable-model-invocation'], 'true');
+  const rules = toolRules('sync');
+  for (const rule of rules) {
+    const m = rule.match(/^(Bash|PowerShell)\((.*)\)$/);
+    if (!m) {
+      assert.ok(['Read', 'Grep', 'Glob', 'AskUserQuestion'].includes(rule), `unexpected tool rule: ${rule}`);
+      continue;
+    }
+    assert.equal(m[2], `node ${CLI} sync .`, `${rule}: only the exact read-only sync call`);
+  }
+  assert.ok(rules.includes(`Bash(node ${CLI} sync .)`) && rules.includes(`PowerShell(node ${CLI} sync .)`));
+});
+
 test('init plans and lists gaps with the pre-approved read-only plan command', () => {
   const text = read('init');
   assert.ok(toolRules('init').includes(`Bash(node ${CLI} plan *)`), 'plan * is pre-approved');
