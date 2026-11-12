@@ -7,6 +7,7 @@ import { detectDeploy } from './deploy.mjs';
 import { SKIP_DIRS, readJson, walk } from './fsx.mjs';
 import { git, gitResult } from './git.mjs';
 import { COMPOSE, detectStacks, isDockerfile } from './stack.mjs';
+import { isWorkspace } from './workspace.mjs';
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -185,7 +186,7 @@ function readWorkspace(root) {
   const file = join(root, '.claude', 'workspace.json');
   if (!existsSync(file)) return null;
   const ws = readJson(file);
-  if (!ws || typeof ws !== 'object' || Array.isArray(ws) || ws.schemaVersion !== 1) return 'invalid';
+  if (!isWorkspace(ws)) return 'invalid';
   return { schemaVersion: 1, initPhase: ws.initPhase ?? null, profile: ws.profile ?? null };
 }
 

@@ -5,7 +5,8 @@ import { dirname, join, resolve } from 'node:path';
 import { readJson } from './fsx.mjs';
 import { normalizePath, relativeTo } from './paths.mjs';
 
-function isWorkspace(ws) {
+/** The one validity rule for a buildorder workspace.json (hooks, detect, scaffold, verify). */
+export function isWorkspace(ws) {
   return ws !== null && typeof ws === 'object' && !Array.isArray(ws) && ws.schemaVersion === 1;
 }
 

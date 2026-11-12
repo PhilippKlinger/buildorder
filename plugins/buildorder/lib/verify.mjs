@@ -4,6 +4,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { readJson, writeJson } from './fsx.mjs';
 import { relativeTo } from './paths.mjs';
+import { isWorkspace } from './workspace.mjs';
 import { DOC_MAP } from './scaffold.mjs';
 
 const WS_REL = '.claude/workspace.json';
@@ -24,7 +25,7 @@ function readWorkspace(root) {
   if (!existsSync(file)) return { problem: `no ${WS_REL}` };
   const ws = readJson(file);
   if (ws === null || typeof ws !== 'object' || Array.isArray(ws)) return { problem: `${WS_REL} is not valid JSON` };
-  if (ws.schemaVersion !== 1) return { problem: `${WS_REL}: schemaVersion must be 1` };
+  if (!isWorkspace(ws)) return { problem: `${WS_REL}: schemaVersion must be 1` };
   return { ws };
 }
 
