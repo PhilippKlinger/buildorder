@@ -51,6 +51,7 @@ test('the release workflow attests the release archive with least privilege', ()
     assert.match(m[2], /^[0-9a-f]{40}$/, `${m[1]} must be pinned by full SHA`);
   }
   assert.match(wf, /persist-credentials: false/, 'checkout must not persist credentials');
+  assert.match(wf, /^ {10}ref: refs\/tags\/\$\{\{ github\.event\.release\.tag_name \}\}$/m, 'checkout must name the tag as refs/tags/<tag> in with:');
   assert.match(wf, /-o buildorder-"\$TAG"\.tar\.gz/, 'archive name must follow buildorder-<tag>.tar.gz');
   assert.match(wf, /git archive --format=tar\.gz --prefix=buildorder-"\$TAG"\//, 'archive must be built with git archive');
   // No expression interpolation inside any run block (template injection).
