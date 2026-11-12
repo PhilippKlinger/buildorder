@@ -12,7 +12,9 @@ const WORKFLOW = ['assess', 'handoff', 'kickoff'];
 const CLI = '"${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs"';
 const STATUS_INJECTION = '!`node ' + CLI + ' status`';
 const DETECT_INJECTION = '!`node ' + CLI + ' detect .`';
-const INIT_COMMANDS = ['detect', 'nest', 'scaffold', 'standard', 'verify', 'finalize', 'github-checklist'];
+// CLI commands init may pre-approve: read-only ones. Writes (standard --apply, nest, scaffold, finalize,
+// github-checklist) stay behind a permission prompt.
+const INIT_COMMANDS = ['detect', 'status', 'verify', 'plan'];
 
 const UMLAUT = new RegExp(`[${String.fromCharCode(0xe4, 0xf6, 0xfc, 0xc4, 0xd6, 0xdc, 0xdf)}]`); // built from codes: this file stays ASCII
 // Common German function words that have no English homograph.
@@ -74,7 +76,7 @@ const toolRules = (name) => (frontmatter(read(name))['allowed-tools'] ?? '')
   .split(/,\s*(?![^()]*\))/).map((r) => r.trim()).filter(Boolean);
 
 // No git rule: `git init *` would also allow --template (hooks) and --separate-git-dir; scaffold --new-repo inits.
-test('init allows only exact CLI commands: no git, no blanket Bash, PowerShell, Write or Edit', () => {
+test('init pre-approves only exact read-only CLI commands: no git, no write command, no blanket tool', () => {
   const rules = toolRules('init');
   assert.ok(rules.length > 0);
   for (const rule of rules) {
@@ -86,7 +88,7 @@ test('init allows only exact CLI commands: no git, no blanket Bash, PowerShell, 
     const cmd = m[2];
     const sub = cmd.startsWith(`node ${CLI} `) ? cmd.slice(`node ${CLI} `.length) : null;
     const name = sub?.match(/^([a-z-]+) \*$/)?.[1];
-    assert.ok(INIT_COMMANDS.includes(name), `${rule}: only exact CLI commands`);
+    assert.ok(INIT_COMMANDS.includes(name), `${rule}: only exact read-only CLI commands`);
   }
 });
 

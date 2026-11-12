@@ -3,13 +3,14 @@ name: init
 description: Sets up a Buildorder workspace in this folder in one guided run, for a new project (empty folder) or one existing repo. Checks the folder, runs a short interview, shows the plan and writes only after the user's OK.
 argument-hint: "[what the project is about]"
 disable-model-invocation: true
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" nest *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" nest *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" scaffold *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" scaffold *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" finalize *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" finalize *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-checklist *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-checklist *), Read, Grep, Glob, AskUserQuestion
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Read, Grep, Glob, AskUserQuestion
 ---
 
 # Init
 
 Set up a Buildorder workspace in the current folder. The CLI does the mechanics; you classify, ask, confirm and
-write the texts. Write nothing before the user's OK in step 2, except a `nest` the user agreed to.
+write the texts. Write nothing before the user's OK in step 2, except a `nest` the user agreed to. Only read-only
+commands run without a prompt; every command that writes asks the user.
 
 **CLI:** every command below runs as `node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" <command> …`.
 Quote every path: paths may hold spaces.
