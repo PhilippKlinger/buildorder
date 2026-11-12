@@ -116,8 +116,11 @@ test('--apply writes the missing files, keeps existing ones, makes one commit an
   const saved = JSON.parse(read(ws, '.claude/workspace.json'));
   assert.equal(saved.schemaVersion, 1);
   assert.equal(saved.name, 'demo');
+  // isCode and stacks are refreshed from detect, so the entry matches the repo as it is after the commit.
   assert.deepEqual(saved.repos, [{
     path: 'app',
+    isCode: true,
+    stacks: ['docker', 'github-actions'],
     standards: {
       modules: ['fake', 'docker-cicd'],
       deviations: [{ id: 'deploy', class: 'standard', reason: 'deployed by hand for now' }],
