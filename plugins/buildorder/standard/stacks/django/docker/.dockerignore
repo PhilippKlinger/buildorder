@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+**/__pycache__
+**/*.py[cod]
+.env
+.env.*
+.coverage
+coverage.xml
+htmlcov
+.pytest_cache
+.ruff_cache
+staticfiles
+*.sqlite3
+Dockerfile
+.dockerignore

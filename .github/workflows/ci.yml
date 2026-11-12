@@ -83,15 +83,14 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-      # AK-2, stack-independent part: the files `standard` writes for the fake stack with docker-cicd.
+      # AK-2, workflow part: the files `standard` writes for the fake stack with every CD variant of
+      # docker-cicd and for the django module (deploy targets container and none).
       - name: Generate the standard's repo files
         run: node tests/helpers/standard-sample.mjs "$RUNNER_TEMP/standard"
       - name: Audit the generated workflows
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          pipx run zizmor==1.31.1 --persona regular \
-            "$RUNNER_TEMP/standard/container" "$RUNNER_TEMP/standard/webspace" "$RUNNER_TEMP/standard/none"
+        run: pipx run zizmor==1.31.1 --persona regular "$RUNNER_TEMP"/standard/*
       # Syntax and context check that zizmor does not do: the official release archive, pinned by version and hash.
       - name: Install actionlint
         env:
@@ -111,15 +110,87 @@ jobs:
       - name: Check the generated workflows (actionlint)
         run: |
           set -Eeuo pipefail
-          for variant in container webspace none; do
-            dir="$RUNNER_TEMP/actionlint/$variant"
+          for sample in "$RUNNER_TEMP"/standard/*/; do
+            dir="$RUNNER_TEMP/actionlint/$(basename "$sample")"
             mkdir -p "$dir"
-            cp -R "$RUNNER_TEMP/standard/$variant/." "$dir/"
+            cp -R "$sample." "$dir/"
             # actionlint 1.7.12 predates the `$/` self-repository syntax, so it checks the same calls in the `./` form.
             sed -i 's#uses: \$/#uses: ./#' "$dir"/.github/workflows/*.yml
             git -C "$dir" init -q
             (cd "$dir" && "$RUNNER_TEMP/actionlint-bin/actionlint")
           done
+
+  # AK-2 for django: `standard --starter` writes the starter and its pipeline into an empty repo, then the
+  # core steps of that pipeline run on it. Linux only, for the PostgreSQL service container (K3).
+  # The commands, image and Python version are those of the module's ci.yml (tests/lib/stack-django.test.mjs).
+  django-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18.6-trixie@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+        env:
+          # Throwaway password of the CI service container, not a secret.
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/django app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack django --deploy container --starter --apply
+          git -C "$dir" log --oneline --stat
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/django app
+        run: python -m pip install --requirement requirements-dev.txt
+      - name: Lint
+        working-directory: ${{ runner.temp }}/django app
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Generate a throwaway SECRET_KEY
+        run: |
+          key="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
+          echo "::add-mask::$key"
+          echo "DJANGO_SECRET_KEY=$key" >> "$GITHUB_ENV"
+      - name: Test with coverage
+        working-directory: ${{ runner.temp }}/django app
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/app
+        run: pytest --cov --cov-report=term-missing
+      - name: Build checks
+        working-directory: ${{ runner.temp }}/django app
+        env:
+          DJANGO_ALLOWED_HOSTS: localhost
+        run: |
+          python manage.py check --deploy --fail-level WARNING
+          python manage.py collectstatic --noinput
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/django app
+        run: pip-audit --requirement requirements.txt --requirement requirements-dev.txt
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/django app
+        run: docker build --tag django-fixture .
 
   gitleaks:
     runs-on: ubuntu-latest
@@ -157,7 +228,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [test, validate, pre-commit, zizmor, gitleaks, codeql]
+    needs: [test, validate, pre-commit, zizmor, django-fixture, gitleaks, codeql]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
