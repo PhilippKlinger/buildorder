@@ -201,6 +201,66 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
+  # AK-2 for go: `standard --starter` writes the starter and its pipeline into an empty repo, then the
+  # core steps of that pipeline run on it. Linux only (K3).
+  # The commands, linter action and Go version are those of the module's ci.yml (tests/lib/stack-go.test.mjs).
+  go-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.4"
+          cache: false
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/go app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack go --deploy container --starter --apply
+          git -C "$dir" log --oneline --stat
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          working-directory: ${{ runner.temp }}/go app
+          skip-cache: true
+          skip-save-cache: true
+      - name: Test with the race detector and coverage
+        working-directory: ${{ runner.temp }}/go app
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Show the coverage
+        working-directory: ${{ runner.temp }}/go app
+        run: go tool cover -func=coverage.out
+      - name: Verify the module cache
+        working-directory: ${{ runner.temp }}/go app
+        run: go mod verify
+      - name: Build
+        working-directory: ${{ runner.temp }}/go app
+        run: go build ./...
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/go app
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/go app
+        run: docker build --tag go-fixture .
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: go-fixture
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
   gitleaks:
     runs-on: ubuntu-latest
     permissions:
@@ -239,7 +299,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [test, validate, pre-commit, zizmor, django-fixture, gitleaks, codeql]
+    needs: [test, validate, pre-commit, zizmor, django-fixture, go-fixture, gitleaks, codeql]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
