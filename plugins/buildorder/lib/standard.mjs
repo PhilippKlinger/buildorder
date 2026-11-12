@@ -7,7 +7,7 @@ import { PLUGIN_ROOT, detect } from './detect.mjs';
 import { SKIP_DIRS, readJson, walk, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
 import { relativeTo } from './paths.mjs';
-import { detectStacks } from './stack.mjs';
+import { detectStacks, pyprojectDeps } from './stack.mjs';
 import { findWorkspaceRoot, loadWorkspace } from './workspace.mjs';
 
 export const STANDARD_DIR = join(PLUGIN_ROOT, 'standard');
@@ -237,6 +237,12 @@ function selection(root, model, { stack, deploy, visibility = 'public', without,
   if (module && !hasDockerfile(module) && !skips.has('container-image')) {
     skips.set('container-image', 'the stack module provides no Dockerfile');
   }
+  // A Python library is not deployed as a container: Buildorder proposes the deviation "no Docker".
+  if (module?.id === 'python' && hasDockerfile(module) && !skips.has('container-image') && isPythonLibrary(root)) {
+    const reason = 'library (no entry point, no server dependency): no container image';
+    skips.set('container-image', reason);
+    deviations.push({ id: 'container-image', class: 'standard', reason });
+  }
   if (!skips.has('deploy')) {
     if (skips.has('container-image')) skips.set('deploy', 'needs container-image, which is skipped');
     else if (target === 'none') skips.set('deploy', 'deploy target none');
@@ -252,6 +258,27 @@ function selection(root, model, { stack, deploy, visibility = 'public', without,
     skip: new Set(skips.keys()),
     deviations,
   };
+}
+
+// Packages that serve requests: a repo depending on one is a service, whatever its framework.
+const SERVER_PACKAGES = ['gunicorn', 'uvicorn', 'hypercorn', 'waitress', 'daphne', 'granian', 'fastapi', 'flask',
+  'starlette', 'aiohttp', 'sanic', 'tornado', 'litestar', 'bottle'];
+const SERVER_DEP = new RegExp(`^(?:${SERVER_PACKAGES.join('|')})(?![a-z0-9_.-])`);
+
+/**
+ * Whether a Python repo is a library: no entry point (`[project.scripts]`), no server dependency
+ * (pyproject.toml, requirements*.txt) and no Dockerfile of its own. Evidence of a service wins, so a
+ * repo without any manifest counts as a library.
+ */
+function isPythonLibrary(root) {
+  if (existsSync(join(root, 'Dockerfile'))) return false;
+  const pyproject = readText(join(root, 'pyproject.toml')) ?? '';
+  if (/^\[(project|tool\.poetry)\.scripts\]/m.test(pyproject)) return false;
+  if (!existsSync(root)) return true;
+  const requirements = readdirSync(root).filter((n) => /^requirements.*\.txt$/.test(n))
+    .flatMap((n) => (readText(join(root, n)) ?? '').split('\n'));
+  const deps = [...pyprojectDeps(pyproject), ...requirements.map((l) => l.replace(/#.*/, ''))];
+  return !deps.some((d) => SERVER_DEP.test(d.trim().toLowerCase()));
 }
 
 /** All workflow files of the repo as one text ('' without any). */

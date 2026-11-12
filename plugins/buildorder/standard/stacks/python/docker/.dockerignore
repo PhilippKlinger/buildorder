@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+**/__pycache__
+**/*.py[cod]
+.env
+.env.*
+.coverage
+coverage.xml
+htmlcov
+.pytest_cache
+.ruff_cache
+Dockerfile
+.dockerignore
+dist
+build
+*.egg-info

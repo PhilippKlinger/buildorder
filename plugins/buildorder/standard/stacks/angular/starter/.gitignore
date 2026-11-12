@@ -1,0 +1,11 @@
+/node_modules
+/dist
+/.angular
+/coverage
+npm-debug.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.env
+.env.*

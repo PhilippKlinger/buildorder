@@ -48,7 +48,7 @@ covers: standards appear in step 2 and can be changed there.
 **New project:**
 1. In chat, unless the start text answers it: "Idea, audience and when it is done, in 2–3 sentences."
 2. One `AskUserQuestion` block:
-   - Stack: `django` (supported, with a tested starter) or another stack (workspace and stack-independent CI only).
+   - Stack: `django`, `python`, `go`, `react`, `angular` (supported, with a tested starter) or another stack (workspace and stack-independent CI only).
    - Visibility: `public` or `private`. Public repos get CodeQL, Dependency Review and push protection for free;
      private ones need paid GitHub products, so these steps are skipped and recorded as deviations.
    - Deploy target: `container` (the starter ships a Dockerfile), `paas`, `webspace` (static sites only), `none`.
@@ -57,6 +57,8 @@ covers: standards appear in step 2 and can be changed there.
    the finding argues against a standard. With `django`, say that the tested starter contains neither `auth` nor
    `admin`: unless the idea answer says otherwise, recommend "no personal data, no login"; a login or admin is
    work for the first backlog tasks, not something the starter provides.
+   With `react` or `angular`, deploy target `webspace` (static build) or `container` fits; with `python`, a library
+   without runtime gets no Docker image: propose `none` and the deviation "no Docker".
 
 **Existing project:** one block: confirm the repo and its `stacks`; goal (revive, modernise, extend); visibility;
 deploy target (recommend `repos[].deploy` and name its evidence). A second block: personal data or login, plus
@@ -70,14 +72,14 @@ the language the user writes in (`en` or `de`; others get `en`).
 
 Run the read-only plan: `plan "<repo>" [--stack <id>] --deploy <target> --visibility <v> [--without <id>=<reason>]...`
 (a repo folder that does not exist yet is planned as empty).
-Pass `--stack` only with a stack that has a module (today `django`), never another entry of `stacks` such as
+Pass `--stack` only with a stack that has a module (`django`, `python`, `go`, `react`, `angular`), never another entry of `stacks` such as
 `github-actions`; otherwise leave it out (for an existing repo, `plan` picks the detected stack itself).
 Show compactly:
 - **Workspace:** `CLAUDE.md`, `.claude/workspace.json`, the six doc-map files, `docs/github-settings.md`,
   `docs/github-ruleset.json`; for an existing project also the audit file in `docs/audits/`. The folder becomes
   a private docs repo (`git init`, no commit) unless it already is one, with the repo folders and
   `.claude/settings.local.json` in `.gitignore`.
-- **Repo:** new project: the plan's `files` plus, with `django`, the module's tested starter, in one commit, no push. Existing project: unchanged; every
+- **Repo:** new project: the plan's `files` plus, with a stack module, its tested starter, in one commit, no push. Existing project: unchanged; every
   `missing` item becomes a backlog task.
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be
   deselected.
@@ -93,7 +95,7 @@ Ask: set it up like this, or change something. A change goes back into the plan.
 
 **New project:**
 1. `scaffold . --lang <lang> --new-repo "<repo>" --visibility <v>`: it creates the repo with `git init` on `main`.
-2. `standard "<repo>" <options of the plan> --apply`, with `django` also `--starter`: one commit in the repo, never
+2. `standard "<repo>" <options of the plan> --apply`, with a stack module also `--starter`: one commit in the repo, never
    a push. If git has no identity, give the user the two `git config` commands to run, then repeat. If it reports
    `ok: false`, git refused the commit (for example signing or a hook): name the `reason`, let the user fix it,
    then repeat; the rerun commits the files already written.

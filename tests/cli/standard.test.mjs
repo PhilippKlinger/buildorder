@@ -68,7 +68,6 @@ test('--starter without a stack module that has a starter is an error and change
   const before = snapshot(dir);
   for (const [args, message] of [
     [[], /^buildorder: --starter needs a stack module with a starter; 'vue' has none\n$/],
-    [['--stack', 'go'], /^buildorder: --starter needs a stack module with a starter; 'go' has none\n$/],
   ]) {
     const r = cli('standard', dir, '--starter', '--apply', ...args);
     assert.equal(r.status, 1, args.join(' '));

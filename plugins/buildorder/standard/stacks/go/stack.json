@@ -1,0 +1,10 @@
+{
+  "codeql": { "language": "go", "buildMode": "autobuild" },
+  "dependabot": [{ "ecosystem": "gomod", "directory": "/" }],
+  "provides": {
+    "lint": "\\bgolangci-lint\\b",
+    "tests-coverage": "\\bgo test\\b(?=[^\\n]*-race\\b)(?=[^\\n]*-cover(?:profile)?\\b)",
+    "build": "\\bgo build\\b",
+    "dependency-audit": "\\bgovulncheck\\b"
+  }
+}

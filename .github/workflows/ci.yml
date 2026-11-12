@@ -201,6 +201,234 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
+  # AK-2 for go: `standard --starter` writes the starter and its pipeline into an empty repo, then the
+  # core steps of that pipeline run on it. Linux only (K3).
+  # The commands, linter action and Go version are those of the module's ci.yml (tests/lib/stack-go.test.mjs).
+  go-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.4"
+          cache: false
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/go app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack go --deploy container --starter --apply
+          git -C "$dir" log --oneline --stat
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+          working-directory: ${{ runner.temp }}/go app
+          skip-cache: true
+          skip-save-cache: true
+      - name: Test with the race detector and coverage
+        working-directory: ${{ runner.temp }}/go app
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Show the coverage
+        working-directory: ${{ runner.temp }}/go app
+        run: go tool cover -func=coverage.out
+      - name: Verify the module cache
+        working-directory: ${{ runner.temp }}/go app
+        run: go mod verify
+      - name: Build
+        working-directory: ${{ runner.temp }}/go app
+        run: go build ./...
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/go app
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/go app
+        run: docker build --tag go-fixture .
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: go-fixture
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  # AK-2 for python: `standard --starter` writes the library starter and its pipeline into an empty repo, then the
+  # core steps of that pipeline run on it. A second repo with an entry point is a service: it gets the Dockerfile,
+  # which is built and scanned. The commands and Python version are those of the module's ci.yml
+  # (tests/lib/stack-python.test.mjs).
+  python-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/python app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack python --deploy none --starter --apply
+          git -C "$dir" log --oneline --stat
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/python app
+        run: python -m pip install --requirement requirements-dev.txt --editable .
+      - name: Lint
+        working-directory: ${{ runner.temp }}/python app
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Test with coverage
+        working-directory: ${{ runner.temp }}/python app
+        run: pytest --cov --cov-report=term-missing
+      - name: Build the wheel and the sdist
+        working-directory: ${{ runner.temp }}/python app
+        run: python -m build
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/python app
+        run: |
+          pip-audit --requirement requirements-dev.txt
+          pip-audit .
+      - name: Turn the starter into a service (adds an entry point) and plan the image
+        run: |
+          set -Eeuo pipefail
+          svc="$RUNNER_TEMP/python service"
+          cp -r "$RUNNER_TEMP/python app" "$svc"
+          printf '\n[project.scripts]\nexample-package = "example_package:greet"\n' >> "$svc/pyproject.toml"
+          node plugins/buildorder/scripts/buildorder.mjs standard "$svc" --stack python --deploy container --apply
+          test -f "$svc/Dockerfile"
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/python service
+        run: docker build --tag python-fixture .
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: python-fixture
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  react-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/react app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack react --deploy container --starter --apply
+          git -C "$dir" log --oneline --stat
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/react app
+        run: npm ci
+      - name: Lint
+        working-directory: ${{ runner.temp }}/react app
+        run: |
+          npx eslint .
+          npx tsc --noEmit
+          npx prettier --check .
+      - name: Test with coverage
+        working-directory: ${{ runner.temp }}/react app
+        run: npx vitest run --coverage
+      - name: Build
+        working-directory: ${{ runner.temp }}/react app
+        run: npx vite build
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/react app
+        run: npm audit --audit-level=high
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/react app
+        run: docker build --tag react-fixture .
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: react-fixture
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  # AK-2 for angular: `standard --starter` writes the starter and its pipeline into an empty repo, then the
+  # core steps of that pipeline run on it. The commands are those of the module's ci.yml
+  # (tests/lib/stack-angular.test.mjs); Node comes from the written .nvmrc, as in the module.
+  angular-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/angular app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack angular --deploy container --starter --apply
+          git -C "$dir" log --oneline --stat
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ runner.temp }}/angular app/.nvmrc
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm ci
+      - name: Lint
+        working-directory: ${{ runner.temp }}/angular app
+        run: |
+          npm run lint
+          npm run format:check
+      - name: Test with coverage
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm run test:ci
+      - name: Build
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm run build
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm audit --audit-level=high
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/angular app
+        run: docker build --tag angular-fixture .
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: angular-fixture
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
   gitleaks:
     runs-on: ubuntu-latest
     permissions:
@@ -239,7 +467,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [test, validate, pre-commit, zizmor, django-fixture, gitleaks, codeql]
+    needs: [test, validate, pre-commit, zizmor, django-fixture, go-fixture, python-fixture, react-fixture, angular-fixture, gitleaks, codeql]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
