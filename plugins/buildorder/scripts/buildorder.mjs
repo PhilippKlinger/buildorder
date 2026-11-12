@@ -3,6 +3,7 @@
 //
 //   node buildorder.mjs detect [dir]
 //   node buildorder.mjs nest [dir] [name]
+//   node buildorder.mjs status [dir] [--json]   (plain text unless --json)
 //   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]...
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
@@ -18,12 +19,14 @@ import { nest } from '../lib/nest.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
 import { standard } from '../lib/standard.mjs';
 import { finalize, verify } from '../lib/verify.mjs';
+import { formatStatus, status } from '../lib/status.mjs';
 
 // `args`: how many arguments a command takes after [dir]; `options`: node:util parseArgs options;
-// `check`: the result's `ok` sets the exit code.
+// `check`: the result's `ok` sets the exit code; `text`: prints plain text unless --json is given.
 const COMMANDS = {
   detect: { args: 0, run: (dir) => detect(dir, { home: homedir() }) },
   nest: { args: 1, run: (dir, [name]) => nest(dir, name) },
+  status: { args: 0, options: { json: { type: 'boolean' } }, text: formatStatus, run: (dir) => status(dir) },
   scaffold: {
     args: 0,
     options: { lang: { type: 'string' }, name: { type: 'string' }, repo: { type: 'string', multiple: true } },
@@ -54,7 +57,7 @@ function main(argv) {
   const [dir = '.', ...args] = positionals;
   if (args.length > cmd.args) throw new Error(`unexpected argument '${args[cmd.args]}'`);
   const result = cmd.run(dir, args, { ...values });
-  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  process.stdout.write(cmd.text && !values.json ? cmd.text(result) : JSON.stringify(result, null, 2) + '\n');
   if (cmd.check && !result.ok) process.exitCode = 1;
 }
 
