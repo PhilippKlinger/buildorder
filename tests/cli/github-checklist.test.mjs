@@ -85,12 +85,24 @@ test('--repo owner/name names the repo when it has no local remote; a local remo
   assert.ok(md.includes('repos/acme/shop-api/rulesets'));
   assert.doesNotMatch(md, /OWNER|No GitHub remote yet/);
 
-  const withRemote = workspace('github given remote', SSH_REMOTE);
-  assert.equal(cli('github-checklist', withRemote, '--repo', 'acme/other').json.repos[0].slug, 'acme/shop');
-
   const bad = cli('github-checklist', workspace('github bad repo'), '--repo', 'not a slug');
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /--repo/);
+});
+
+test('--repo is refused unless exactly one repo lacks an origin; hostile owner/name shapes are refused', () => {
+  const withRemote = workspace('github given remote', SSH_REMOTE);
+  const refused = cli('github-checklist', withRemote, '--repo', 'acme/other');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /--repo.*exactly one repo without a GitHub origin/);
+
+  const local = workspace('github shapes');
+  for (const bad of ['-acme/shop', 'acme-/..', 'acme/..', 'acme/.', 'acme/-x', 'a_b/shop', `${'a'.repeat(40)}/shop`, 'acme/shop/extra']) {
+    const r = cli('github-checklist', local, '--repo', bad);
+    assert.equal(r.status, 1, bad);
+    assert.match(r.stderr, /--repo/, bad);
+  }
+  assert.equal(cli('github-checklist', local, '--repo', 'Acme-1/my.repo_x-y').status, 0);
 });
 
 const LOOSE = 'docs/github-ruleset-without-checks.json';
