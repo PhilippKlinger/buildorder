@@ -1,4 +1,4 @@
 # Runtime dependencies, pinned exactly; Dependabot keeps them current.
 Django==5.2.19
-gunicorn==27.0.0
+gunicorn==26.2.0
 psycopg[binary]==3.3.8
