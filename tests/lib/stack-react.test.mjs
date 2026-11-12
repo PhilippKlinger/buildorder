@@ -13,6 +13,7 @@ after(cleanup);
 
 const react = () => loadStack('react');
 const DIR = join(STACKS_DIR, 'react');
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 const STACK_ITEMS = loadModel().items.filter((i) => i.provider === 'stack').map((i) => i.id);
 const CI = '.github/workflows/ci.yml';
 const STARTER = ['.gitattributes', '.gitignore', '.nvmrc', '.prettierignore', '.prettierrc.json', 'eslint.config.js',
@@ -78,7 +79,7 @@ test('react image: Nginx unprivileged pinned by digest, Node builder pinned, non
   const froms = [...dockerfile.matchAll(/^FROM (\S+)/gm)].map((m) => m[1]);
   assert.equal(froms.length, 2, 'multi-stage');
   const node = starterFile('.nvmrc').trim();
-  assert.match(froms[0], new RegExp(`^node:${node.replace(/\./g, '\\.')}-alpine[\\d.]+@sha256:[0-9a-f]{64}$`), froms[0]);
+  assert.match(froms[0], new RegExp(`^node:${escapeRe(node)}-alpine[\\d.]+@sha256:[0-9a-f]{64}$`), froms[0]);
   assert.match(froms[1], /^nginxinc\/nginx-unprivileged:\d+\.\d+\.\d+-alpine[\d.]+@sha256:[0-9a-f]{64}$/, froms[1]);
   assert.match(dockerfile, /^RUN npm ci$/m);
   assert.match(dockerfile, /^COPY --from=build \/app\/dist \/usr\/share\/nginx\/html$/m);
