@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { detectDeploy } from './deploy.mjs';
-import { PLUGIN_ROOT } from './detect.mjs';
+import { PLUGIN_ROOT, detect } from './detect.mjs';
 import { SKIP_DIRS, readJson, walk, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
 import { relativeTo } from './paths.mjs';
@@ -402,7 +402,10 @@ function uncommitted(root, files) {
   return present.map((f) => f.path).filter((p) => !inHead.has(p));
 }
 
-/** Records `standards` on the repo's entry in the enclosing workspace.json: `{ dir, recorded }`, or null. */
+/**
+ * Records `standards` on the repo's entry in the enclosing workspace.json, and refreshes its `isCode` and `stacks`
+ * from detect: the entry was written when the repo was still empty. `{ dir, recorded }`, or null.
+ */
 function record(root, standards) {
   const wsRoot = findWorkspaceRoot(root);
   const ws = wsRoot ? loadWorkspace(wsRoot) : null;
@@ -412,6 +415,8 @@ function record(root, standards) {
     .find((r) => typeof r?.path === 'string' && relativeTo(resolve(wsRoot, r.path), wsRoot) === rel);
   if (!entry) return { dir: wsRoot, recorded: false };
   entry.standards = standards;
+  const found = detect(wsRoot).repos.find((r) => relativeTo(resolve(wsRoot, r.path), wsRoot) === rel);
+  if (found) Object.assign(entry, { isCode: found.isCode, stacks: found.stacks });
   writeJson(join(wsRoot, '.claude', 'workspace.json'), ws);
   return { dir: wsRoot, recorded: true };
 }
