@@ -48,7 +48,8 @@ test('new django project in an empty folder: plan, scaffold with git init, start
   assert.deepEqual(json('verify', root), { ok: true, dir: root, problems: [], warnings: [] });
   assert.equal(json('finalize', root).initPhase, 'done');
   const checklist = json('github-checklist', root);
-  assert.deepEqual(checklist.repos, [{ path: 'shop app', slug: 'OWNER/shop-app', remote: false }]);
+  assert.deepEqual(checklist.repos,
+    [{ path: 'shop app', slug: 'OWNER/shop-app', remote: false, ciOk: true, visibility: 'public' }]);
 
   const ws = wsOf(root);
   assert.equal(ws.initPhase, 'done');
@@ -85,7 +86,8 @@ test('existing repo: scaffold, gap list as backlog tasks, verify, finalize; the 
 
   assert.equal(json('verify', root).ok, true);
   assert.equal(json('finalize', root).initPhase, 'done');
-  json('github-checklist', root);
+  const repoState = json('github-checklist', root).repos[0];
+  assert.deepEqual([repoState.ciOk, repoState.visibility], [false, 'private'], 'no ci-ok job yet: no required check');
   assert.equal(wsOf(root).repos[0].visibility, 'private');
   assert.deepEqual(snapshot(repo), before, 'HEAD and git status unchanged');
 });
