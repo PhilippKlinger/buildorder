@@ -215,3 +215,10 @@ test('the python fixture job in the repo CI runs the core commands of the module
   for (const line of core) assert.ok(fixture.has(line), `fixture job runs: ${line}`);
   assert.ok(job.includes(stack.ci.match(/python-version: "[^"]+"/)[0]));
 });
+
+test('plan for a folder that does not exist yet with --stack python: a library, so no image (new project)', () => {
+  const missing = join(tmp('python new'), 'not-yet');
+  const out = standard(missing, '--stack', 'python', '--deploy', 'none');
+  assert.deepEqual(out.deviations.map((d) => d.id), ['container-image']);
+  assert.equal(stateOf(out)['container-image'], 'skipped');
+});

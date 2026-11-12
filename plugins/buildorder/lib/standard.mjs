@@ -274,6 +274,7 @@ function isPythonLibrary(root) {
   if (existsSync(join(root, 'Dockerfile'))) return false;
   const pyproject = readText(join(root, 'pyproject.toml')) ?? '';
   if (/^\[(project|tool\.poetry)\.scripts\]/m.test(pyproject)) return false;
+  if (!existsSync(root)) return true;
   const requirements = readdirSync(root).filter((n) => /^requirements.*\.txt$/.test(n))
     .flatMap((n) => (readText(join(root, n)) ?? '').split('\n'));
   const deps = [...pyprojectDeps(pyproject), ...requirements.map((l) => l.replace(/#.*/, ''))];
