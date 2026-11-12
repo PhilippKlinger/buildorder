@@ -157,7 +157,7 @@ jobs:
           dir="$RUNNER_TEMP/django app"
           git init -q -b main "$dir"
           git -C "$dir" config user.name ci
-          git -C "$dir" config user.email ci@localhost
+          git -C "$dir" config user.email ci
           node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack django --deploy container --starter --apply
           git -C "$dir" log --oneline --stat
       - name: Install dependencies
