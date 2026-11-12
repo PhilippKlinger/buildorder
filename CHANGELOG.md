@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [0.1.1] - 2026-11-12
+
+### Fixed
+
+- `nest` now works on Windows when Claude Code runs in the folder; it no longer fails because a watch handle on `.claude/` blocks the folder rename.
+- The Django image no longer ships known, fixed HIGH vulnerabilities: Debian security updates run at build time and pip is no longer needed at runtime. buildorder's CI now scans the fixture image with Trivy.
+
 ## [0.1.0] - 2026-11-12
 
 First pre-release.
@@ -32,4 +39,5 @@ First pre-release.
   handoff reminder on stop.
 - Skills: `/buildorder:init`, `kickoff`, `handoff`, `assess`, `review` and `secure`.
 
+[0.1.1]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.1
 [0.1.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.0
