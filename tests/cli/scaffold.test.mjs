@@ -54,7 +54,7 @@ test('--lang de and --name write German docs under that name', () => {
   const ws = wsOf(dir);
   assert.equal(ws.name, 'demo');
   assert.deepEqual(ws.language, { docs: 'de' });
-  assert.match(read(dir, 'HANDOFF.md'), /^# Übergabe — /);
+  assert.match(read(dir, 'HANDOFF.md'), /^# \u00dcbergabe — /);
   assert.match(read(dir, 'SPRINT.md'), /^# Sprint — demo\n/);
   assert.match(read(dir, 'CLAUDE.md'), /Fachbegriffe bleiben englisch/);
 });
