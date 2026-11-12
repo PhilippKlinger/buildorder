@@ -3,7 +3,7 @@ name: init
 description: Sets up a Buildorder workspace in this folder in one guided run, for a new project (empty folder) or one existing repo. Checks the folder, runs a short interview, shows the plan and writes only after the user's OK.
 argument-hint: "[what the project is about]"
 disable-model-invocation: true
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Read, Grep, Glob, AskUserQuestion
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Read, Grep, Glob, AskUserQuestion
 ---
 
 # Init
@@ -66,14 +66,14 @@ If the start text or notes contradict the finding, ask and name the evidence; ne
 New project: the repo folder is the workspace folder name without a `-workspace` suffix. Docs language: suggest
 the language the user writes in (`en` or `de`; others get `en`).
 
-Run the plan: `standard "<repo>" [--stack <id>] --deploy <target> --visibility <v> [--without <id>=<reason>]...`,
-for a new project with `django` also `--starter` (a repo folder that does not exist yet is planned as empty).
+Run the read-only plan: `plan "<repo>" [--stack <id>] --deploy <target> --visibility <v> [--without <id>=<reason>]...`
+(a repo folder that does not exist yet is planned as empty).
 Pass `--stack` only with a stack that has a module (today `django`), never another entry of `stacks` such as
-`github-actions`; otherwise leave it out (for an existing repo, `standard` picks the detected stack itself).
+`github-actions`; otherwise leave it out (for an existing repo, `plan` picks the detected stack itself).
 Show compactly:
 - **Workspace:** `CLAUDE.md`, `.claude/workspace.json`, the six doc-map files, `docs/github-settings.md`,
   `docs/github-ruleset.json`; for an existing project also the audit file in `docs/audits/`.
-- **Repo:** new project: the plan's `files`, in one commit, no push. Existing project: unchanged; every
+- **Repo:** new project: the plan's `files` plus, with `django`, the module's tested starter, in one commit, no push. Existing project: unchanged; every
   `missing` item becomes a backlog task.
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be
   deselected.
@@ -89,13 +89,13 @@ Ask: set it up like this, or change something. A change goes back into the plan.
 
 **New project:**
 1. `scaffold . --lang <lang> --new-repo "<repo>" --visibility <v>`: it creates the repo with `git init` on `main`.
-2. `standard "<repo>" <options of the plan> --apply`: one commit in the repo, never a push. If git has no
-   identity, give the user the two `git config` commands to run, then repeat.
+2. `standard "<repo>" <options of the plan> --apply`, with `django` also `--starter`: one commit in the repo, never
+   a push. If git has no identity, give the user the two `git config` commands to run, then repeat.
 
 **Existing project:**
 1. `scaffold . --lang <lang> --repo "<repo>" --visibility <v>`
-2. `standard "<repo>" <options of the plan> --gaps`: keep the output for step 4. Never `--apply`: the repo stays
-   unchanged.
+2. `plan "<repo>" <options of the plan> --gaps`: keep the output for step 4. Never run `standard` here: the repo
+   stays unchanged.
 
 Name the files `scaffold` reports as `skipped` (they existed and were kept). On an error, read the message, fix the
 options and repeat; never rebuild what the CLI writes by hand.
@@ -126,6 +126,6 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
 
 At most 12 lines: what was set up, the number of backlog tasks, the assumptions made, and what did not happen
 (no GitHub repo, no push, no build). Then one short list of recommendations, nothing installed:
-- the `notes` of the `standard` output (for example installing the pre-commit hooks), and the proxy note of step 2
+- the `notes` of the plan (for example installing the pre-commit hooks), and the proxy note of step 2
 - the Superpowers plugin, and the code-intelligence plugin for the stack's language
 - open a new session so the hooks load, then start with `/buildorder:kickoff`

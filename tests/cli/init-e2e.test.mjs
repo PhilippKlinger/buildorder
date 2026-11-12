@@ -25,10 +25,10 @@ test('new django project in an empty folder: plan, scaffold with git init, start
   const root = tmp('init new');
   assert.equal(json('detect', root).suggestion, 'new');
   const repo = join(root, 'shop app');
-  const options = ['--stack', 'django', '--deploy', 'container', '--visibility', 'public', '--starter'];
+  const options = ['--stack', 'django', '--deploy', 'container', '--visibility', 'public'];
 
   // Step 2: the confirmation shows the plan before anything exists.
-  const plan = json('standard', repo, ...options);
+  const plan = json('plan', repo, ...options);
   assert.ok(plan.files.every((f) => f.state === 'create'));
   assert.equal(existsSync(repo), false);
 
@@ -38,10 +38,12 @@ test('new django project in an empty folder: plan, scaffold with git init, start
   for (const [k, v] of [['user.name', 'test'], ['user.email', ['test', 'localhost'].join('@')], ['commit.gpgsign', 'false']]) {
     gitIn(repo, 'config', k, v);
   }
-  const applied = json('standard', repo, ...options, '--apply');
-  assert.deepEqual(applied.created, plan.files.map((f) => f.path));
+  const applied = json('standard', repo, ...options, '--starter', '--apply');
+  // The plan's files, after the starter files that --starter adds in front.
+  assert.deepEqual(applied.created.slice(-plan.files.length), plan.files.map((f) => f.path));
+  assert.ok(applied.created.includes('manage.py'));
   assert.deepEqual(applied.workspace, { dir: root, recorded: true });
-  assert.equal(ok('standard', repo, ...options, '--gaps').stdout,
+  assert.equal(ok('plan', repo, ...options, '--gaps').stdout,
     'No gaps: every repo item of the standard is present or deliberately skipped.\n');
 
   // Step 5: verify, finalize, GitHub checklist.
@@ -77,10 +79,10 @@ test('existing repo: scaffold, gap list as backlog tasks, verify, finalize; the 
 
   json('scaffold', root, '--lang', 'de', '--repo', 'legacy app', '--visibility', 'private');
   const options = ['--deploy', 'container', '--visibility', 'private'];
-  const plan = json('standard', repo, ...options);
+  const plan = json('plan', repo, ...options);
   const missing = plan.items.filter((i) => i.state === 'missing');
   assert.ok(missing.length > 0, 'the plan lists gaps');
-  const rows = ok('standard', repo, ...options, '--gaps').stdout.split('\n').filter((l) => l.startsWith('| STD-'));
+  const rows = ok('plan', repo, ...options, '--gaps').stdout.split('\n').filter((l) => l.startsWith('| STD-'));
   assert.equal(rows.length, missing.length, 'every gap is a backlog task');
   assert.ok(!rows.some((l) => /CodeQL|Dependency Review/.test(l)), 'paid items on a private repo are deviations, not gaps');
 

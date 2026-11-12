@@ -93,6 +93,14 @@ test('init pre-approves only exact read-only CLI commands: no git, no write comm
   }
 });
 
+test('init plans and lists gaps with the pre-approved read-only plan command', () => {
+  const text = read('init');
+  assert.ok(toolRules('init').includes(`Bash(node ${CLI} plan *)`), 'plan * is pre-approved');
+  assert.ok(text.includes('`plan "<repo>" [--stack <id>]'), 'the confirmation runs plan');
+  assert.ok(text.includes('`plan "<repo>" <options of the plan> --gaps`'), 'the gap list comes from plan');
+  assert.doesNotMatch(text, /`standard "<repo>"[^`]*--gaps/, 'no gap list through standard');
+});
+
 test('every live command of a skill is allowed by its own allowed-tools (else the skill aborts)', () => {
   const glob = (pattern) => new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
   for (const name of skills()) {
