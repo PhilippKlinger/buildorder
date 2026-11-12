@@ -1,0 +1,6 @@
+# Build, lint, test and audit tools, pinned exactly; Dependabot keeps them current.
+build==1.6.1
+pip-audit==2.10.1
+pytest==9.2.0
+pytest-cov==7.1.0
+ruff==0.17.3
