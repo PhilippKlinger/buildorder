@@ -13,9 +13,11 @@ export const FAKE_STACKS = join(repoRoot, 'tests', 'fixtures', 'stacks');
 export function samples() {
   const fake = loadStack('fake', FAKE_STACKS);
   const django = loadStack('django');
+  const angular = loadStack('angular');
   return [
     ['container', fake, 'container'], ['webspace', fake, 'webspace'], ['none', fake, 'none'],
     ['django-container', django, 'container'], ['django-none', django, 'none'],
+    ['angular-webspace', angular, 'webspace'], ['angular-container', angular, 'container'],
   ].map(([name, stack, deploy]) => ({ name, stack, deploy }));
 }
 
