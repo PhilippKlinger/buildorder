@@ -1,0 +1,195 @@
+# Deployment for the deploy target "container", called by the deploy job in ci.yml.
+# It starts the images that CI built, pinned to this commit and their digest, on a server over SSH.
+#
+# Before the first deploy:
+#   - add docker-compose.prod.yaml to the repo; it starts only finished images and reads them from
+#     the variables in `images` (APP_IMAGE by default), e.g. `image: ${APP_IMAGE:?}`
+#   - secrets (environment "production"): SSH_HOST, SSH_PORT, SSH_USER, SSH_PRIVATE_KEY, SSH_KNOWN_HOSTS, DEPLOY_PATH
+#   - variables: DEPLOY_ENABLED=true (switches the deploy job on), READINESS_URLS (newline-separated URLs
+#     checked on the server after the start), REQUIRED_ENV (space-separated names that must be set in .env)
+# The server keeps its own .env (mode 600, owned by the deploy user); CI never copies secrets.
+name: deployment
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      images:
+        description: "Newline-separated VAR=ghcr.io/owner/name:sha@sha256:digest"
+        required: true
+        type: string
+      compose_file:
+        required: false
+        type: string
+        default: docker-compose.prod.yaml
+    secrets:
+      SSH_HOST:
+        required: false
+      SSH_PORT:
+        required: false
+      SSH_USER:
+        required: false
+      SSH_PRIVATE_KEY:
+        required: false
+      SSH_KNOWN_HOSTS:
+        required: false
+      DEPLOY_PATH:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: deployment-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy approved images
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+    env:
+      SSH_DIR: ${{ runner.temp }}/deploy-ssh
+    steps:
+      - name: Check out the compose file
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable image references
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          while IFS= read -r LINE; do
+            [[ -z "${LINE}" ]] && continue
+            [[ "${LINE}" =~ ^[A-Z_][A-Z0-9_]*=ghcr\.io/[a-z0-9._/-]+:${SOURCE_SHA}@sha256:[0-9a-f]{64}$ ]] || {
+              echo "::error::Image reference is not pinned to this commit and a digest: ${LINE}"
+              exit 1
+            }
+          done <<< "${IMAGES}"
+
+      - name: Configure the SSH client
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -Eeuo pipefail
+          for NAME in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS DEPLOY_PATH; do
+            [[ -n "${!NAME:-}" ]] || { echo "::error::Required deployment secret ${NAME} is missing or empty."; exit 1; }
+          done
+          [[ "${SSH_PORT}" =~ ^[0-9]+$ ]] && (( SSH_PORT >= 1 && SSH_PORT <= 65535 )) || { echo "::error::SSH_PORT must be 1-65535."; exit 1; }
+          [[ "${SSH_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.:-]*$ ]] || { echo "::error::SSH_HOST has an invalid format."; exit 1; }
+          [[ "${SSH_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "::error::SSH_USER has an invalid format."; exit 1; }
+          [[ "${DEPLOY_PATH}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "::error::DEPLOY_PATH must be an absolute path without whitespace."; exit 1; }
+
+          umask 077
+          install -m 700 -d "${SSH_DIR}"
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > "${SSH_DIR}/key"
+          printf '%s\n' "${SSH_KNOWN_HOSTS}" > "${SSH_DIR}/known_hosts"
+          ssh-keygen -y -f "${SSH_DIR}/key" > /dev/null || { echo "::error::SSH_PRIVATE_KEY is not a valid private key."; exit 1; }
+          LOOKUP="${SSH_HOST}"; [[ "${SSH_PORT}" != "22" ]] && LOOKUP="[${SSH_HOST}]:${SSH_PORT}"
+          ssh-keygen -F "${LOOKUP}" -f "${SSH_DIR}/known_hosts" > /dev/null || { echo "::error::SSH_KNOWN_HOSTS does not contain the host."; exit 1; }
+
+          cat > "${SSH_DIR}/config" <<EOF
+          Host target
+            HostName ${SSH_HOST}
+            Port ${SSH_PORT}
+            User ${SSH_USER}
+            IdentityFile ${SSH_DIR}/key
+            UserKnownHostsFile ${SSH_DIR}/known_hosts
+            StrictHostKeyChecking yes
+            BatchMode yes
+            IdentitiesOnly yes
+            PasswordAuthentication no
+            ConnectTimeout 10
+            LogLevel ERROR
+          EOF
+
+      - name: Verify server prerequisites and runtime configuration
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REQUIRED_ENV: ${{ vars.REQUIRED_ENV }}
+        run: |
+          set -Eeuo pipefail
+          ssh -F "${SSH_DIR}/config" target "set -Eeuo pipefail
+            cd '${DEPLOY_PATH}'
+            command -v docker > /dev/null && docker info > /dev/null && docker compose version > /dev/null || { echo 'Docker/Compose not usable by the deploy user.' >&2; exit 1; }
+            test -f .env || { echo '.env is missing on the server.' >&2; exit 1; }
+            test \"\$(stat -c '%u' .env)\" = \"\$(id -u)\" || { echo '.env is not owned by the deploy user.' >&2; exit 1; }
+            (( (8#\$(stat -c '%a' .env) & 077) == 0 )) || { echo '.env grants group/other permissions.' >&2; exit 1; }
+            for NAME in ${REQUIRED_ENV}; do grep -Eq \"^\${NAME}=.+\" .env || { echo \"\${NAME} is missing or empty in .env.\" >&2; exit 1; }; done"
+
+      - name: Transfer and validate the compose file
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          COMPOSE_FILE: ${{ inputs.compose_file }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -Eeuo pipefail
+          TMP="${DEPLOY_PATH}/.compose.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
+          scp -F "${SSH_DIR}/config" -B "${COMPOSE_FILE}" "target:${TMP}"
+          EXPORTS="$(sed -E '/^\s*$/d; s/^/export /' <<< "${IMAGES}")"
+          ssh -F "${SSH_DIR}/config" target "set -Eeuo pipefail
+            cd '${DEPLOY_PATH}'
+            ${EXPORTS}
+            RESOLVED=\"\$(docker compose --env-file .env -f '${TMP}' config --images)\"
+            while IFS='=' read -r _ REF; do
+              [[ -z \"\${REF}\" ]] && continue
+              grep -Fqx -- \"\${REF}\" <<< \"\${RESOLVED}\" || { echo \"Compose does not use the approved image \${REF}.\" >&2; exit 1; }
+            done <<< '${IMAGES}'
+            mv -f -- '${TMP}' '${DEPLOY_PATH}/${COMPOSE_FILE}'"
+
+      - name: Start the stack and check readiness
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          COMPOSE_FILE: ${{ inputs.compose_file }}
+          IMAGES: ${{ inputs.images }}
+          READINESS_URLS: ${{ vars.READINESS_URLS }}
+        run: |
+          set -Eeuo pipefail
+          EXPORTS="$(sed -E '/^\s*$/d; s/^/export /' <<< "${IMAGES}")"
+          URLS="$(tr '\n' ' ' <<< "${READINESS_URLS}")"
+          ssh -F "${SSH_DIR}/config" target "set -Eeuo pipefail
+            cd '${DEPLOY_PATH}'
+            ${EXPORTS}
+            docker compose -f '${COMPOSE_FILE}' up -d --no-build --remove-orphans
+            for ATTEMPT in \$(seq 1 30); do
+              READY=true
+              for URL in ${URLS}; do curl --fail --silent --max-time 5 \"\${URL}\" > /dev/null || READY=false; done
+              UNHEALTHY=\"\$(docker compose -f '${COMPOSE_FILE}' ps --format '{{.Name}} {{.Health}}' | awk '\$2 != \"\" && \$2 != \"healthy\"')\"
+              [[ \"\${READY}\" == true && -z \"\${UNHEALTHY}\" ]] && break
+              [[ \"\${ATTEMPT}\" == 30 ]] && { echo 'Services not ready within 60 s.' >&2; docker compose -f '${COMPOSE_FILE}' ps >&2; exit 1; }
+              sleep 2
+            done
+            docker image prune -f > /dev/null"
+
+      - name: Verify that the approved images run
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          COMPOSE_FILE: ${{ inputs.compose_file }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -Eeuo pipefail
+          ssh -F "${SSH_DIR}/config" target "set -Eeuo pipefail
+            cd '${DEPLOY_PATH}'
+            RUNNING=\"\$(docker compose -f '${COMPOSE_FILE}' ps -q | xargs docker inspect -f '{{.Image}}')\"
+            while IFS='=' read -r _ REF; do
+              [[ -z \"\${REF}\" ]] && continue
+              EXPECTED=\"\$(docker image inspect -f '{{.Id}}' \"\${REF}\")\"
+              grep -Fqx -- \"\${EXPECTED}\" <<< \"\${RUNNING}\" || { echo \"Approved image \${REF} is not running.\" >&2; exit 1; }
+            done <<< '${IMAGES}'"
+
+      - name: Remove temporary SSH material
+        if: always()
+        run: rm -rf "${SSH_DIR}"

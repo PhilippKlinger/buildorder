@@ -1,0 +1,17 @@
+ci-ok:
+  if: always()
+  needs: [__NEEDS__]
+  runs-on: ubuntu-latest
+  permissions: {}
+  steps:
+    - name: Require every job to succeed (or to be skipped by its condition)
+      env:
+        RESULTS: ${{ join(needs.*.result, ' ') }}
+      run: |
+        echo "Results: $RESULTS"
+        for r in $RESULTS; do
+          if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
+            echo "At least one job failed or was cancelled."
+            exit 1
+          fi
+        done

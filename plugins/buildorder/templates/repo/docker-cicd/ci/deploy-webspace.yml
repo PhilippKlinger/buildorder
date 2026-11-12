@@ -1,0 +1,20 @@
+# Deploy target "webspace": uploads the site from the pushed image (deployment-webspace.yml).
+# Switched on with the repository variable DEPLOY_ENABLED=true, so CI stays green before a webspace exists.
+deploy:
+  if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+  needs: [image]
+  permissions:
+    contents: read
+    packages: read
+  uses: $/.github/workflows/deployment-webspace.yml
+  with:
+    source_sha: ${{ github.sha }}
+    image: ${{ needs.image.outputs.image }}
+  secrets:
+    WEBSPACE_HOST: ${{ secrets.WEBSPACE_HOST }}
+    WEBSPACE_PORT: ${{ secrets.WEBSPACE_PORT }}
+    WEBSPACE_USER: ${{ secrets.WEBSPACE_USER }}
+    WEBSPACE_PATH: ${{ secrets.WEBSPACE_PATH }}
+    WEBSPACE_SSH_KEY: ${{ secrets.WEBSPACE_SSH_KEY }}
+    WEBSPACE_KNOWN_HOSTS: ${{ secrets.WEBSPACE_KNOWN_HOSTS }}
+    WEBSPACE_PASSWORD: ${{ secrets.WEBSPACE_PASSWORD }}

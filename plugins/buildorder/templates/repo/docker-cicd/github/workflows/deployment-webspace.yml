@@ -1,0 +1,184 @@
+# Deployment for the deploy target "webspace", called by the deploy job in ci.yml:
+# a static site on shared hosting (Apache webspace) without SSH shell access.
+#
+# The upload is taken out of the image that CI built and scanned (pinned to this commit and its digest),
+# so the webspace serves exactly the approved build; there is no second build.
+# Rollback: re-run the last successful deploy of the previous commit; its image is still in GHCR.
+#
+# Secrets (environment "production" with required reviewers):
+#   WEBSPACE_HOST, WEBSPACE_PORT, WEBSPACE_USER, WEBSPACE_PATH (absolute target folder)
+#   sftp: WEBSPACE_SSH_KEY, WEBSPACE_KNOWN_HOSTS      ftps: WEBSPACE_PASSWORD
+# Variables:
+#   DEPLOY_ENABLED=true   switches the deploy job in ci.yml on
+#   WEBSPACE_PROTOCOL     sftp (default, preferred) or ftps (explicit TLS, certificate verified)
+#   SITE_URL              public URL checked after the upload (status 200 and security headers active)
+#   WEBSPACE_DELETE=true  also remove remote files that are not in the build (default: keep them)
+#   WEBSPACE_KEEP         space-separated globs never touched on the server
+name: deployment-webspace
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      image:
+        description: "ghcr.io/owner/name:sha@sha256:digest"
+        required: true
+        type: string
+      site_path:
+        description: "Folder inside the image that holds the site"
+        required: false
+        type: string
+        default: /usr/share/nginx/html
+    secrets:
+      WEBSPACE_HOST:
+        required: false
+      WEBSPACE_PORT:
+        required: false
+      WEBSPACE_USER:
+        required: false
+      WEBSPACE_PATH:
+        required: false
+      WEBSPACE_SSH_KEY:
+        required: false
+      WEBSPACE_KNOWN_HOSTS:
+        required: false
+      WEBSPACE_PASSWORD:
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: deployment-webspace-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Upload approved build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      CRED_DIR: ${{ runner.temp }}/webspace-cred
+      SITE_DIR: ${{ runner.temp }}/site
+      PROTOCOL: ${{ vars.WEBSPACE_PROTOCOL || 'sftp' }}
+    steps:
+      - name: Verify the immutable image reference
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${IMAGE}" =~ ^ghcr\.io/[a-z0-9._/-]+:${SOURCE_SHA}@sha256:[0-9a-f]{64}$ ]] || {
+            echo "::error::Image reference is not pinned to this commit and a digest: ${IMAGE}"
+            exit 1
+          }
+          [[ "${PROTOCOL}" == sftp || "${PROTOCOL}" == ftps ]] || { echo "::error::WEBSPACE_PROTOCOL must be sftp or ftps."; exit 1; }
+
+      - name: Extract the site from the approved image
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          IMAGE: ${{ inputs.image }}
+          SITE_PATH: ${{ inputs.site_path }}
+        run: |
+          set -Eeuo pipefail
+          echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          docker pull --quiet "${IMAGE}"
+          ID="$(docker create "${IMAGE}")"
+          mkdir -p "${SITE_DIR}"
+          docker cp "${ID}:${SITE_PATH}/." "${SITE_DIR}/"
+          docker rm "${ID}" > /dev/null
+          docker logout ghcr.io
+
+      - name: Check the build before it leaves the runner
+        run: |
+          set -Eeuo pipefail
+          test -f "${SITE_DIR}/index.html" || { echo "::error::index.html missing in the image."; exit 1; }
+          # Apache reads the security headers from .htaccess; without it the site would go live without them.
+          test -f "${SITE_DIR}/.htaccess" || { echo "::error::.htaccess missing in the build."; exit 1; }
+          FORBIDDEN="$(find "${SITE_DIR}" \( -name '.env*' -o -name '*.pem' -o -name '*.key' -o -name '.git' -o -name '*.sql' \) -print)"
+          [[ -z "${FORBIDDEN}" ]] || { echo "::error::Files that must never be published are in the build:"; echo "${FORBIDDEN}"; exit 1; }
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends lftp
+
+      - name: Configure the transport
+        env:
+          WEBSPACE_HOST: ${{ secrets.WEBSPACE_HOST }}
+          WEBSPACE_PORT: ${{ secrets.WEBSPACE_PORT }}
+          WEBSPACE_USER: ${{ secrets.WEBSPACE_USER }}
+          WEBSPACE_PATH: ${{ secrets.WEBSPACE_PATH }}
+          WEBSPACE_SSH_KEY: ${{ secrets.WEBSPACE_SSH_KEY }}
+          WEBSPACE_KNOWN_HOSTS: ${{ secrets.WEBSPACE_KNOWN_HOSTS }}
+          WEBSPACE_PASSWORD: ${{ secrets.WEBSPACE_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          REQUIRED="WEBSPACE_HOST WEBSPACE_PORT WEBSPACE_USER WEBSPACE_PATH"
+          if [[ "${PROTOCOL}" == sftp ]]; then REQUIRED+=" WEBSPACE_SSH_KEY WEBSPACE_KNOWN_HOSTS"; else REQUIRED+=" WEBSPACE_PASSWORD"; fi
+          for NAME in ${REQUIRED}; do
+            [[ -n "${!NAME:-}" ]] || { echo "::error::Required deployment secret ${NAME} is missing or empty."; exit 1; }
+          done
+          [[ "${WEBSPACE_PORT}" =~ ^[0-9]+$ ]] && (( WEBSPACE_PORT >= 1 && WEBSPACE_PORT <= 65535 )) || { echo "::error::WEBSPACE_PORT must be 1-65535."; exit 1; }
+          [[ "${WEBSPACE_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || { echo "::error::WEBSPACE_HOST has an invalid format."; exit 1; }
+          [[ "${WEBSPACE_USER}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::WEBSPACE_USER has an invalid format."; exit 1; }
+          [[ "${WEBSPACE_PATH}" =~ ^/[A-Za-z0-9._/-]+$ && "${WEBSPACE_PATH}" != / ]] || { echo "::error::WEBSPACE_PATH must be an absolute folder below /."; exit 1; }
+
+          umask 077
+          install -m 700 -d "${CRED_DIR}"
+          if [[ "${PROTOCOL}" == sftp ]]; then
+            printf '%s\n' "${WEBSPACE_SSH_KEY}" > "${CRED_DIR}/key"
+            printf '%s\n' "${WEBSPACE_KNOWN_HOSTS}" > "${CRED_DIR}/known_hosts"
+            ssh-keygen -y -f "${CRED_DIR}/key" > /dev/null || { echo "::error::WEBSPACE_SSH_KEY is not a valid private key."; exit 1; }
+            LOOKUP="${WEBSPACE_HOST}"; [[ "${WEBSPACE_PORT}" != "22" ]] && LOOKUP="[${WEBSPACE_HOST}]:${WEBSPACE_PORT}"
+            ssh-keygen -F "${LOOKUP}" -f "${CRED_DIR}/known_hosts" > /dev/null || { echo "::error::WEBSPACE_KNOWN_HOSTS does not contain the host."; exit 1; }
+            cat > "${CRED_DIR}/connect.lftp" <<EOF
+          set sftp:connect-program "ssh -a -x -i ${CRED_DIR}/key -o UserKnownHostsFile=${CRED_DIR}/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes -o IdentitiesOnly=yes"
+          set net:max-retries 2
+          open -u "${WEBSPACE_USER}," "sftp://${WEBSPACE_HOST}:${WEBSPACE_PORT}"
+          EOF
+          else
+            # The password stays in the environment (lftp --env-password), never in a file.
+            cat > "${CRED_DIR}/connect.lftp" <<EOF
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          set ssl:verify-certificate true
+          set net:max-retries 2
+          open --env-password -u "${WEBSPACE_USER}" "ftp://${WEBSPACE_HOST}:${WEBSPACE_PORT}"
+          EOF
+          fi
+
+      - name: Upload (index.html last, so no page points to missing assets)
+        env:
+          WEBSPACE_PATH: ${{ secrets.WEBSPACE_PATH }}
+          LFTP_PASSWORD: ${{ secrets.WEBSPACE_PASSWORD }}
+          WEBSPACE_DELETE: ${{ vars.WEBSPACE_DELETE }}
+          WEBSPACE_KEEP: ${{ vars.WEBSPACE_KEEP }}
+        run: |
+          set -Eeuo pipefail
+          # Only the root index.html waits; sub-pages go up with their assets.
+          OPTS="--reverse --verbose=1 --parallel=4 --exclude ^index\.html$"
+          [[ "${WEBSPACE_DELETE}" == true ]] && OPTS+=" --delete"
+          for GLOB in ${WEBSPACE_KEEP}; do OPTS+=" --exclude-glob ${GLOB}"; done
+          lftp -c "source ${CRED_DIR}/connect.lftp
+            mirror ${OPTS} '${SITE_DIR}' '${WEBSPACE_PATH}'
+            put '${SITE_DIR}/index.html' -o '${WEBSPACE_PATH}/index.html'"
+
+      - name: Check the live site
+        if: vars.SITE_URL != ''
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          set -Eeuo pipefail
+          HEADERS="$(curl --fail --silent --show-error --max-time 15 --head --location "${SITE_URL}")"
+          for H in strict-transport-security content-security-policy x-content-type-options; do
+            grep -iq "^${H}:" <<< "${HEADERS}" || { echo "::error::Live site lacks the ${H} header; is .htaccess active?"; exit 1; }
+          done
+
+      - name: Remove credentials
+        if: always()
+        run: rm -rf "${CRED_DIR}" "${SITE_DIR}"

@@ -1,0 +1,10 @@
+{
+  "codeql": { "language": "python", "buildMode": "none" },
+  "dependabot": [{ "ecosystem": "pip", "directory": "/" }],
+  "provides": {
+    "lint": "fake-lint",
+    "tests-coverage": "fake-test --coverage",
+    "build": "fake-build",
+    "dependency-audit": "fake-audit"
+  }
+}

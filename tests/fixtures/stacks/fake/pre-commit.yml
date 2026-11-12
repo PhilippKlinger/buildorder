@@ -1,0 +1,7 @@
+- repo: local
+  hooks:
+    - id: fake-format
+      name: fake format
+      entry: fake-format
+      language: system
+      files: \.fake$
