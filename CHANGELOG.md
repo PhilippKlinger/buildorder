@@ -31,4 +31,4 @@ First pre-release.
   handoff reminder on stop.
 - Skills: `/buildorder:init`, `kickoff`, `handoff`, `assess`, `review` and `secure`.
 
-[0.1.0]: https://github.com/<owner>/buildorder/commits/main
+[0.1.0]: https://github.com/PhilippKlinger/buildorder/commits/main

@@ -1,11 +1,11 @@
 # Buildorder
 
-[![ci](https://github.com/<owner>/buildorder/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/buildorder/actions/workflows/ci.yml)
+[![ci](https://github.com/PhilippKlinger/buildorder/actions/workflows/ci.yml/badge.svg)](https://github.com/PhilippKlinger/buildorder/actions/workflows/ci.yml)
 
 A Claude Code plugin that sets up a workspace and engineering standards for your project.
 Your agent writes the code. Buildorder builds the engineering around it.
 
-> **Pre-release (0.x).** Interfaces may change between versions. Replace `<owner>` with the GitHub account that hosts this repository.
+> **Pre-release (0.x).** Interfaces may change between versions.
 
 ## Requirements
 
@@ -17,7 +17,7 @@ Your agent writes the code. Buildorder builds the engineering around it.
 ## Installation
 
 ```text
-/plugin marketplace add <owner>/buildorder
+/plugin marketplace add PhilippKlinger/buildorder
 /plugin install buildorder@buildorder
 ```
 

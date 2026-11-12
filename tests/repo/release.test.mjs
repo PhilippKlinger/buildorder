@@ -11,7 +11,12 @@ const readJson = (rel) => JSON.parse(read(rel));
 const author = readJson('plugins/buildorder/.claude-plugin/plugin.json').author.name;
 const NAME_PARTS = author.split(/\s+/).filter((p) => p.length > 2);
 
-const namesPerson = (text) => NAME_PARTS.some((p) => text.toLowerCase().includes(p.toLowerCase()));
+// The owner may appear only as part of the repository slug (<owner>/buildorder), as spec AK-7 allows.
+const ownerSlug = new RegExp(`${author.replace(/\s+/g, '')}/buildorder`, 'gi');
+const namesPerson = (text) => {
+  const rest = text.replace(ownerSlug, '').toLowerCase();
+  return NAME_PARTS.some((p) => rest.includes(p.toLowerCase()));
+};
 
 test('the version lives only in plugin.json', () => {
   assert.ok(readJson('plugins/buildorder/.claude-plugin/plugin.json').version, 'plugin.json needs a version');
