@@ -91,7 +91,9 @@ Ask: set it up like this, or change something. A change goes back into the plan.
 **New project:**
 1. `scaffold . --lang <lang> --new-repo "<repo>" --visibility <v>`: it creates the repo with `git init` on `main`.
 2. `standard "<repo>" <options of the plan> --apply`, with `django` also `--starter`: one commit in the repo, never
-   a push. If git has no identity, give the user the two `git config` commands to run, then repeat.
+   a push. If git has no identity, give the user the two `git config` commands to run, then repeat. If it reports
+   `ok: false`, git refused the commit (for example signing or a hook): name the `reason`, let the user fix it,
+   then repeat; the rerun commits the files already written.
 
 **Existing project:**
 1. `scaffold . --lang <lang> --repo "<repo>" --visibility <v>`

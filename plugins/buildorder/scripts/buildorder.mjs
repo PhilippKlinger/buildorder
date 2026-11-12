@@ -15,7 +15,8 @@
 //   node buildorder.mjs plan [repo] [same options as standard, without --starter and --apply; --gaps too]   (read-only)
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
-// problems (verify, finalize) prints its JSON report and exits with 1 as well.
+// problems (verify, finalize), and a standard --apply whose commit git refused, print the JSON report and
+// exit with 1 as well.
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
@@ -62,6 +63,7 @@ const COMMANDS = {
       gaps: { type: 'boolean' },
     },
     text: gapText,
+    check: true,
     run: (dir, _args, opts) => standard(dir, opts),
   },
   // The read-only plan of `standard`: no --apply option, so strict parsing refuses it and skills can pre-approve it.

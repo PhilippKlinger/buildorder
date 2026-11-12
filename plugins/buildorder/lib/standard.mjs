@@ -357,7 +357,11 @@ function report(root, model, sel) {
   };
 }
 
-const firstLine = (text) => text.split('\n').find((l) => l.trim()) ?? 'unknown error';
+// git's own warnings and hints (e.g. LF will be replaced by CRLF) come before the cause, so they are passed over.
+const firstLine = (text) => {
+  const lines = text.split('\n').filter((l) => l.trim());
+  return lines.find((l) => !/^(warning|hint): /.test(l)) ?? lines[0] ?? 'unknown error';
+};
 
 /** Throws when git could not commit in `root` for lack of an identity; checked before anything is written. */
 function requireIdentity(root) {
@@ -365,13 +369,37 @@ function requireIdentity(root) {
   if (!known) throw new Error(`git has no user.name and user.email for ${root}; set them (git config), then run again`);
 }
 
-/** Stages and commits exactly `files` (other staged changes stay staged); returns the new HEAD. */
+/**
+ * Stages and commits exactly `files` (other staged changes stay staged): `{ head }`, or `{ error }` when
+ * git refused (signing, a hook, core.safecrlf). The files stay in place either way.
+ */
 function commitFiles(root, files, message) {
   const add = gitResult(root, ['add', '--', ...files]);
-  if (!add.ok) throw new Error(`git add failed: ${firstLine(add.stderr)}`);
+  if (!add.ok) return { error: `git add failed: ${firstLine(add.stderr)}` };
   const commit = gitResult(root, ['commit', '-q', '-m', message, '--', ...files]);
-  if (!commit.ok) throw new Error(`git commit failed: ${firstLine(commit.stderr)}`);
-  return gitResult(root, ['rev-parse', 'HEAD']).stdout;
+  if (!commit.ok) return { error: `git commit failed: ${firstLine(commit.stderr)}` };
+  return { head: gitResult(root, ['rev-parse', 'HEAD']).stdout };
+}
+
+/**
+ * The plan's files that a run before wrote but could not commit: present with exactly the planned content,
+ * yet not in HEAD. A file of the user's own at a planned path differs in content and is never taken.
+ */
+function uncommitted(root, files) {
+  const present = files.filter(({ path, content }) => {
+    const abs = join(root, ...path.split('/'));
+    try {
+      return statSync(abs).isFile() && readFileSync(abs).equals(Buffer.from(content));
+    } catch {
+      return false;
+    }
+  });
+  if (!present.length) return [];
+  // Before the first commit there is no HEAD: nothing is committed yet.
+  const tree = gitResult(root, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...present.map((f) => f.path)],
+    { trim: false });
+  const inHead = new Set(tree.ok ? tree.stdout.split('\0').filter(Boolean) : []);
+  return present.map((f) => f.path).filter((p) => !inHead.has(p));
 }
 
 /** Records `standards` on the repo's entry in the enclosing workspace.json: `{ dir, recorded }`, or null. */
@@ -400,7 +428,9 @@ function record(root, standards) {
  * this plan is the gap list; a folder that does not exist yet is planned as an empty repo (the confirmation
  * of a new project, before `git init`). With `apply` it writes the missing files (never overwrites), commits
  * them in one commit (no push), records `standards` in the enclosing workspace.json and returns the
- * plan's files with `created`, `skipped`, `commit` and `workspace`; `items` show the state afterwards.
+ * plan's files with `created`, `skipped`, `committed`, `commit` and `workspace`; `items` show the state afterwards.
+ * When git refuses the commit, the result is `ok: false` with `reason`; the written files stay, and a rerun
+ * commits them (written files with the planned content that are not in HEAD yet).
  * Throws before writing anything when an option is invalid, `dir` is no git repo, or (with files to write)
  * git has no identity to commit with.
  */
@@ -412,10 +442,13 @@ export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
   const plan = report(root, model, sel);
   if (!opts.apply) return { ok: true, repo: root, applied: false, ...plan };
 
-  if (plan.files.some((f) => f.state === 'create')) requireIdentity(root);
+  const files = filesOf(sel);
+  // A rerun after a failed commit finds its files written but not committed, and commits them now.
+  const pending = uncommitted(root, files);
+  if (pending.length || plan.files.some((f) => f.state === 'create')) requireIdentity(root);
   const created = [];
   const skipped = [];
-  for (const { path, content } of filesOf(sel)) {
+  for (const { path, content } of files) {
     const abs = join(root, ...path.split('/'));
     if (existsSync(abs)) {
       skipped.push(path);
@@ -426,10 +459,21 @@ export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
     created.push(path);
   }
   const message = sel.starter ? starterMessage(sel.stack.id) : COMMIT_MESSAGE;
-  const commit = created.length ? commitFiles(root, created, message) : null;
+  const committed = files.map((f) => f.path).filter((p) => created.includes(p) || pending.includes(p));
+  const done = committed.length ? commitFiles(root, committed, message) : { head: null };
+  if (done.error) {
+    // Not ok: init must not report the commit as made. The files stay; a rerun commits them.
+    const after = report(root, model, sel);
+    return {
+      ok: false, repo: root, applied: true, reason: done.error, ...after,
+      files: plan.files, created, skipped, committed: [], commit: null, workspace: null,
+    };
+  }
   const workspace = record(root, { modules: plan.modules, deviations: sel.deviations });
   const after = report(root, model, sel);
-  return { ok: true, repo: root, applied: true, ...after, files: plan.files, created, skipped, commit, workspace };
+  return {
+    ok: true, repo: root, applied: true, ...after, files: plan.files, created, skipped, committed, commit: done.head, workspace,
+  };
 }
 
 // --- gap list as backlog tasks -------------------------------------------------------------------
