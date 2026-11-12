@@ -41,7 +41,7 @@ const stateOf = (out) => Object.fromEntries(out.items.map((i) => [i.id, i.state]
 test('the go module satisfies the stack-module interface', () => {
   const stack = go();
   assert.ok(stack, 'standard/stacks/go loads');
-  assert.deepEqual(stack.codeql, { language: 'go', buildMode: 'none' });
+  assert.deepEqual(stack.codeql, { language: 'go', buildMode: 'autobuild' });
   assert.deepEqual(stack.dependabot, [{ ecosystem: 'gomod', directory: '/' }]);
   assert.deepEqual(stack.jobs, ['lint', 'test', 'build', 'audit']);
   assert.deepEqual(stack.docker.map((f) => f.path), ['.dockerignore', 'Dockerfile']);
@@ -178,4 +178,19 @@ test('the go fixture job in the repo CI runs the core commands of the module on 
   for (const pattern of [/go-version: "[^"]+"/, /^ +version: v\d+\.\d+\.\d+$/m]) {
     assert.ok(job.includes(stack.ci.match(pattern)[0].trim()), String(pattern));
   }
+});
+
+test('go tests-coverage counts only with the race detector and coverage together', () => {
+  const stateWith = (label, testCommand) => {
+    const dir = codeRepo(label, {
+      'go.mod': 'module example.com/shop\n\ngo 1.27.4\n',
+      'main.go': 'package main\n\nfunc main() {}\n',
+      '.github/workflows/ci.yml': `name: ci\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ${testCommand}\n`,
+    });
+    return stateOf(standard(dir))['tests-coverage'];
+  };
+  assert.equal(stateWith('go no race', 'go test -coverprofile=coverage.out ./...'), 'missing');
+  assert.equal(stateWith('go no cover', 'go test -race ./...'), 'missing');
+  assert.equal(stateWith('go race cover', 'go test -race -covermode=atomic -coverprofile=coverage.out ./...'), 'present');
+  assert.equal(stateWith('go cover race', 'go test -coverprofile=coverage.out -race ./...'), 'present');
 });
