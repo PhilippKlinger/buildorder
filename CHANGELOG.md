@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-12
 
 First pre-release.
 
@@ -32,4 +32,4 @@ First pre-release.
   handoff reminder on stop.
 - Skills: `/buildorder:init`, `kickoff`, `handoff`, `assess`, `review` and `secure`.
 
-[0.1.0]: https://github.com/PhilippKlinger/buildorder/commits/main
+[0.1.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.0
