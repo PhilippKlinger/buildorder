@@ -25,7 +25,7 @@ test('nest, scaffold, verify, finalize; boundary-guard blocks SPRINT.md in the r
   const repo = join(root, nested.repoPath);
 
   ok('scaffold', root, '--lang', 'de');
-  assert.deepEqual(ok('verify', root), { ok: true, dir: root, problems: [] });
+  assert.deepEqual(ok('verify', root), { ok: true, dir: root, problems: [], warnings: [] });
 
   for (const cwd of [root, repo]) {
     const denied = writeTo(join(repo, 'SPRINT.md'), cwd);

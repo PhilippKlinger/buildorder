@@ -37,11 +37,12 @@ function assertProblems(dir, problems) {
   const out = verify(dir);
   assert.equal(out.ok, false);
   assert.deepEqual(out.problems, problems);
+  assert.deepEqual(out.warnings, []);
 }
 
 test('a scaffolded workspace is ok', () => {
   const dir = workspace('verify ok');
-  assert.deepEqual(verify(dir), { ok: true, dir, problems: [] });
+  assert.deepEqual(verify(dir), { ok: true, dir, problems: [], warnings: [] });
 });
 
 test('workspace.json missing, invalid or of another schema', () => {
@@ -69,13 +70,17 @@ test('every repo must exist and be a git repo', () => {
   assertProblems(dir, ['repo gone does not exist', 'repo plain is not a git repo']);
 });
 
-test('no doc-map control file inside a code repo', () => {
+const WARN = (file) => `${file} is a doc-map file name inside a code repo; the workspace uses the one in its root`;
+
+test('doc-map file names inside a code repo are warnings, not problems', () => {
   const dir = workspace('verify boundary');
   write(join(dir, 'app'), { 'SPRINT.md': '', 'docs/HANDOFF.md': '', 'src/DECISIONS.md': '' });
-  assertProblems(dir, [
-    'app/SPRINT.md is a doc-map control file inside a code repo',
-    'app/docs/HANDOFF.md is a doc-map control file inside a code repo',
-  ]);
+  const warnings = [WARN('app/SPRINT.md'), WARN('app/docs/HANDOFF.md')];
+  assert.deepEqual(verify(dir), { ok: true, dir, problems: [], warnings });
+
+  const done = cli('finalize', dir);
+  assert.equal(done.status, 0, done.stderr);
+  assert.deepEqual(done.json, { ok: true, dir, initPhase: 'done', problems: [], warnings });
 });
 
 test('guards.docsOnlyNames must be set', () => {
@@ -91,13 +96,13 @@ test('finalize sets initPhase done only when verify is ok', () => {
   rmSync(join(dir, 'SPRINT.md'));
   const refused = cli('finalize', dir);
   assert.equal(refused.status, 1);
-  assert.deepEqual(refused.json, { ok: false, dir, initPhase: 'scaffolded', problems: ['SPRINT.md is missing'] });
+  assert.deepEqual(refused.json, { ok: false, dir, initPhase: 'scaffolded', problems: ['SPRINT.md is missing'], warnings: [] });
   assert.equal(readWs(dir).initPhase, 'scaffolded');
 
   write(dir, { 'SPRINT.md': '# Sprint\n' });
   const done = cli('finalize', dir);
   assert.equal(done.status, 0, done.stderr);
-  assert.deepEqual(done.json, { ok: true, dir, initPhase: 'done', problems: [] });
+  assert.deepEqual(done.json, { ok: true, dir, initPhase: 'done', problems: [], warnings: [] });
   const ws = readWs(dir);
   assert.equal(ws.initPhase, 'done');
   assert.equal(ws.name, 'target dir', 'the rest of workspace.json stays');
@@ -108,6 +113,6 @@ test('finalize without a workspace reports it and writes nothing', () => {
   const dir = tmp('finalize none');
   const r = cli('finalize', dir);
   assert.equal(r.status, 1);
-  assert.deepEqual(r.json, { ok: false, dir, initPhase: null, problems: ['no .claude/workspace.json'] });
+  assert.deepEqual(r.json, { ok: false, dir, initPhase: null, problems: ['no .claude/workspace.json'], warnings: [] });
   assert.equal(existsSync(join(dir, '.claude')), false);
 });

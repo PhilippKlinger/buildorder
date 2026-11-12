@@ -31,8 +31,10 @@ function readWorkspace(root) {
 
 const isName = (v) => typeof v === 'string' && v !== '';
 
-function problemsOf(root, ws) {
+/** Problems make verify fail; warnings are reported and leave it ok. */
+function findingsOf(root, ws) {
   const problems = [];
+  const warnings = [];
   // Doc-map: every file is named and exists in the workspace root.
   const docFiles = [];
   for (const key of Object.keys(DOC_MAP)) {
@@ -42,7 +44,8 @@ function problemsOf(root, ws) {
   }
   for (const file of docFiles) if (!existsSync(join(root, file))) problems.push(`${file} is missing`);
 
-  // Repos: each exists, is a git repo and holds no control file where boundary-guard would block one.
+  // Repos: each exists and is a git repo. A doc-map file name where boundary-guard would block a
+  // write is only a warning: an existing repo stays unchanged (AK-3).
   const repos = ws.repos ?? [];
   if (!Array.isArray(repos)) problems.push('repos must be a list');
   for (const repo of Array.isArray(repos) ? repos : []) {
@@ -65,26 +68,27 @@ function problemsOf(root, ws) {
     if (rel === '') continue; // a repo at the root is the docs home itself
     for (const where of ['', 'docs/']) {
       for (const file of docFiles) {
-        if (existsSync(join(abs, where, file))) problems.push(`${path}/${where}${file} is a doc-map control file inside a code repo`);
+        if (!existsSync(join(abs, where, file))) continue;
+        warnings.push(`${path}/${where}${file} is a doc-map file name inside a code repo; the workspace uses the one in its root`);
       }
     }
   }
 
   const names = ws.guards?.docsOnlyNames;
   if (!Array.isArray(names) || !names.some(isName)) problems.push('guards.docsOnlyNames is not set');
-  return problems;
+  return { problems, warnings };
 }
 
 function check(dir) {
   const root = folder(dir);
   const { ws, problem } = readWorkspace(root);
-  return { root, ws, problems: problem ? [problem] : problemsOf(root, ws) };
+  return { root, ws, ...(problem ? { problems: [problem], warnings: [] } : findingsOf(root, ws)) };
 }
 
-/** `{ ok, dir, problems }`: ok when the workspace in `dir` is complete and consistent. */
+/** `{ ok, dir, problems, warnings }`: ok when the workspace in `dir` is complete and consistent. */
 export function verify(dir) {
-  const { root, problems } = check(dir);
-  return { ok: problems.length === 0, dir: root, problems };
+  const { root, problems, warnings } = check(dir);
+  return { ok: problems.length === 0, dir: root, problems, warnings };
 }
 
 /**
@@ -92,8 +96,8 @@ export function verify(dir) {
  * `initPhase` in the result is the phase afterwards (null without a readable workspace.json).
  */
 export function finalize(dir) {
-  const { root, ws, problems } = check(dir);
+  const { root, ws, problems, warnings } = check(dir);
   const ok = problems.length === 0;
   if (ok && ws.initPhase !== 'done') writeJson(join(root, '.claude', 'workspace.json'), { ...ws, initPhase: 'done' });
-  return { ok, dir: root, initPhase: ok ? 'done' : (ws?.initPhase ?? null), problems };
+  return { ok, dir: root, initPhase: ok ? 'done' : (ws?.initPhase ?? null), problems, warnings };
 }
