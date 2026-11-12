@@ -1,0 +1,52 @@
+{
+  "classes": {
+    "mandatory": "always set up; cannot be deselected",
+    "standard": "set up by default; can be deselected with a reason",
+    "option": "set up only when chosen"
+  },
+  "items": [
+    { "id": "lint", "class": "mandatory", "provider": "stack", "where": "repo", "summary": "Lint" },
+    { "id": "tests-coverage", "class": "mandatory", "provider": "stack", "where": "repo", "summary": "Tests with coverage measurement" },
+    { "id": "build", "class": "mandatory", "provider": "stack", "where": "repo", "summary": "Build" },
+    { "id": "dependency-audit", "class": "mandatory", "provider": "stack", "where": "repo", "summary": "Dependency audit for the stack's language" },
+    {
+      "id": "secret-scan", "class": "mandatory", "provider": "core", "where": "repo", "summary": "Secret scan of the full history (gitleaks)",
+      "check": { "workflow": ["gitleaks"] }
+    },
+    {
+      "id": "dependency-review", "class": "mandatory", "provider": "core", "where": "repo", "summary": "Dependency Review on pull requests",
+      "paidOnPrivate": true,
+      "check": { "workflow": ["actions/dependency-review-action@"] }
+    },
+    {
+      "id": "codeql", "class": "mandatory", "provider": "core", "where": "repo", "summary": "CodeQL code scanning",
+      "paidOnPrivate": true,
+      "check": { "workflow": ["github/codeql-action/analyze@"] }
+    },
+    {
+      "id": "dependabot", "class": "mandatory", "provider": "core", "where": "repo", "summary": "Dependabot for GitHub Actions and the stack",
+      "check": { "files": [".github/dependabot.yml", ".github/dependabot.yaml"] }
+    },
+    {
+      "id": "action-pins", "class": "mandatory", "provider": "core", "where": "repo", "summary": "Every action pinned to a full commit SHA",
+      "check": { "pins": true }
+    },
+    {
+      "id": "workflow-lint", "class": "mandatory", "provider": "core", "where": "repo", "summary": "Workflow lint (zizmor)",
+      "check": { "workflow": ["zizmor"] }
+    },
+    {
+      "id": "pre-commit", "class": "mandatory", "provider": "core", "where": "repo", "summary": "Pre-commit hooks and the same hooks in CI",
+      "check": { "files": [".pre-commit-config.yaml"], "workflow": ["pre-commit run"] }
+    },
+    { "id": "rulesets", "class": "mandatory", "provider": "core", "where": "github", "summary": "Rulesets: pull requests, no force push, required checks" },
+    { "id": "guardrail-hooks", "class": "mandatory", "provider": "core", "where": "plugin", "summary": "Guardrail hooks" },
+    { "id": "doc-map", "class": "mandatory", "provider": "core", "where": "workspace", "summary": "Doc-map" },
+    {
+      "id": "container-image", "class": "standard", "provider": "docker-cicd", "where": "repo",
+      "summary": "Container image with Trivy scan, push by digest, SBOM and build-provenance attestation",
+      "check": { "files": ["Dockerfile"], "workflow": ["trivy", "attest-build-provenance"] }
+    },
+    { "id": "deploy", "class": "standard", "provider": "docker-cicd", "where": "repo", "summary": "CD for the deploy target" }
+  ]
+}
