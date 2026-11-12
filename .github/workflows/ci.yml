@@ -76,10 +76,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Audit workflows
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: pipx run zizmor==1.31.1 --persona regular .github/workflows
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
@@ -87,10 +83,16 @@ jobs:
       # docker-cicd and for the django module (deploy targets container and none).
       - name: Generate the standard's repo files
         run: node tests/helpers/standard-sample.mjs "$RUNNER_TEMP/standard"
-      - name: Audit the generated workflows
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: pipx run zizmor==1.31.1 --persona regular "$RUNNER_TEMP"/standard/*
+      # One run covers the repo's own workflows and the generated ones. No SARIF upload
+      # (advanced-security: false): the job keeps plain, failing output and needs no security-events
+      # permission. The action's shell word-splits and globs the inputs.
+      - name: Audit workflows
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          version: 1.31.1
+          persona: regular
+          advanced-security: false
+          inputs: .github/workflows ${{ runner.temp }}/standard/*
       # Syntax and context check that zizmor does not do: the official release archive, pinned by version and hash.
       - name: Install actionlint
         env:
@@ -203,20 +205,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Personal-account repo: no GITLEAKS_LICENSE needed (only organization-owned repos need one).
+      # Comments are off, so read access to pull requests is enough to list their commits.
       - name: Scan full history
-        run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/repo:ro" \
-            -e GIT_CONFIG_COUNT=1 \
-            -e GIT_CONFIG_KEY_0=safe.directory \
-            -e GIT_CONFIG_VALUE_0=/repo \
-            ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
-            git --no-banner --redact --verbose /repo
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
   codeql:
     runs-on: ubuntu-latest
