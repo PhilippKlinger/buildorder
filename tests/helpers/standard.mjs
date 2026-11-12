@@ -15,11 +15,13 @@ export function samples() {
   const django = loadStack('django');
   const go = loadStack('go');
   const python = loadStack('python');
+  const react = loadStack('react');
   return [
     ['container', fake, 'container'], ['webspace', fake, 'webspace'], ['none', fake, 'none'],
     ['django-container', django, 'container'], ['django-none', django, 'none'],
     ['go-container', go, 'container'],
     ['python-container', python, 'container'], ['python-none', python, 'none'],
+    ['react-webspace', react, 'webspace'], ['react-container', react, 'container'],
   ].map(([name, stack, deploy]) => ({ name, stack, deploy }));
 }
 

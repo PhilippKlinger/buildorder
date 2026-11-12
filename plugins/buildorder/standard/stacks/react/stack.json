@@ -1,0 +1,10 @@
+{
+  "codeql": { "language": "javascript-typescript", "buildMode": "none" },
+  "dependabot": [{ "ecosystem": "npm", "directory": "/" }],
+  "provides": {
+    "lint": "\\beslint\\b",
+    "tests-coverage": "\\bvitest run --coverage\\b|\\bjest --coverage\\b",
+    "build": "\\bvite build\\b|\\bnpm run build\\b",
+    "dependency-audit": "\\bnpm audit\\b"
+  }
+}
