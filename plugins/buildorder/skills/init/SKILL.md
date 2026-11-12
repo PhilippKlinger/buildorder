@@ -61,7 +61,8 @@ covers: standards appear in step 2 and can be changed there.
    without runtime gets no Docker image: propose `none` and the deviation "no Docker".
 
 **Existing project:** one block: confirm the repo and its `stacks`; goal (revive, modernise, extend); visibility;
-deploy target (recommend `repos[].deploy` and name its evidence). A second block: personal data or login, plus
+deploy target (recommend `repos[].deploy` and name its evidence); release style (every merge to `main`, or tags
+with SemVer; recommend from the existing tags and workflows, but ask, never assume). A second block: personal data or login, plus
 deviations only where the finding argues against a standard (a library without runtime: no container image).
 If the start text or notes contradict the finding, ask and name the evidence; never decide silently.
 

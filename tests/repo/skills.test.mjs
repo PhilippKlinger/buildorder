@@ -186,3 +186,9 @@ test('skills are English and hold no personal names', () => {
     });
   }
 });
+
+const normalized = (name) => read(name).replace(/\s+/g, ' ');
+
+test('init asks for the release style of an existing project', () => {
+  assert.match(normalized('init'), /\*\*Existing project:\*\*[^*]*release style \([^)]*never assume/);
+});
