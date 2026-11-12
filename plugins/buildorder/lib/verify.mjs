@@ -2,6 +2,7 @@
 // the init as done. Pure reads, except finalize's write of `initPhase`.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { writeJson } from './fsx.mjs';
 import { relativeTo } from './paths.mjs';
 import { DOC_MAP } from './scaffold.mjs';
 
@@ -78,10 +79,25 @@ function problemsOf(root, ws) {
   return problems;
 }
 
-/** `{ ok, dir, problems }`: ok when the workspace in `dir` is complete and consistent. */
-export function verify(dir) {
+function check(dir) {
   const root = folder(dir);
   const { ws, problem } = readWorkspace(root);
-  const problems = problem ? [problem] : problemsOf(root, ws);
+  return { root, ws, problems: problem ? [problem] : problemsOf(root, ws) };
+}
+
+/** `{ ok, dir, problems }`: ok when the workspace in `dir` is complete and consistent. */
+export function verify(dir) {
+  const { root, problems } = check(dir);
   return { ok: problems.length === 0, dir: root, problems };
+}
+
+/**
+ * Sets `initPhase: "done"` when verify is ok; otherwise reports the problems and leaves the phase.
+ * `initPhase` in the result is the phase afterwards (null without a readable workspace.json).
+ */
+export function finalize(dir) {
+  const { root, ws, problems } = check(dir);
+  const ok = problems.length === 0;
+  if (ok && ws.initPhase !== 'done') writeJson(join(root, '.claude', 'workspace.json'), { ...ws, initPhase: 'done' });
+  return { ok, dir: root, initPhase: ok ? 'done' : (ws?.initPhase ?? null), problems };
 }

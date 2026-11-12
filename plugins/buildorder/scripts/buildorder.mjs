@@ -5,15 +5,16 @@
 //   node buildorder.mjs nest [dir] [name]
 //   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]...
 //   node buildorder.mjs verify [dir]
+//   node buildorder.mjs finalize [dir]
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
-// problems (verify) prints its JSON report and exits with 1 as well.
+// problems (verify, finalize) prints its JSON report and exits with 1 as well.
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
 import { nest } from '../lib/nest.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
-import { verify } from '../lib/verify.mjs';
+import { finalize, verify } from '../lib/verify.mjs';
 
 // `args`: how many arguments a command takes after [dir]; `options`: node:util parseArgs options;
 // `check`: the result's `ok` sets the exit code.
@@ -26,6 +27,7 @@ const COMMANDS = {
     run: (dir, _args, opts) => scaffold(dir, opts),
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
+  finalize: { args: 0, check: true, run: (dir) => finalize(dir) },
 };
 const USAGE = `usage: buildorder.mjs <command> [dir] (commands: ${Object.keys(COMMANDS).join(', ')})`;
 

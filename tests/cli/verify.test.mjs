@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, tmp, write } from '../helpers/cli.mjs';
 
@@ -84,4 +84,30 @@ test('guards.docsOnlyNames must be set', () => {
   assertProblems(dir, ['guards.docsOnlyNames is not set']);
   editWs(dir, (ws) => { delete ws.guards; });
   assertProblems(dir, ['guards.docsOnlyNames is not set']);
+});
+
+test('finalize sets initPhase done only when verify is ok', () => {
+  const dir = workspace('finalize');
+  rmSync(join(dir, 'SPRINT.md'));
+  const refused = cli('finalize', dir);
+  assert.equal(refused.status, 1);
+  assert.deepEqual(refused.json, { ok: false, dir, initPhase: 'scaffolded', problems: ['SPRINT.md is missing'] });
+  assert.equal(readWs(dir).initPhase, 'scaffolded');
+
+  write(dir, { 'SPRINT.md': '# Sprint\n' });
+  const done = cli('finalize', dir);
+  assert.equal(done.status, 0, done.stderr);
+  assert.deepEqual(done.json, { ok: true, dir, initPhase: 'done', problems: [] });
+  const ws = readWs(dir);
+  assert.equal(ws.initPhase, 'done');
+  assert.equal(ws.name, 'target dir', 'the rest of workspace.json stays');
+  assert.equal(cli('finalize', dir).status, 0, 'a second run is ok too');
+});
+
+test('finalize without a workspace reports it and writes nothing', () => {
+  const dir = tmp('finalize none');
+  const r = cli('finalize', dir);
+  assert.equal(r.status, 1);
+  assert.deepEqual(r.json, { ok: false, dir, initPhase: null, problems: ['no .claude/workspace.json'] });
+  assert.equal(existsSync(join(dir, '.claude')), false);
 });
