@@ -359,6 +359,12 @@ function report(root, model, sel) {
 
 const firstLine = (text) => text.split('\n').find((l) => l.trim()) ?? 'unknown error';
 
+/** Throws when git could not commit in `root` for lack of an identity; checked before anything is written. */
+function requireIdentity(root) {
+  const known = ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT'].every((v) => gitResult(root, ['var', v]).ok);
+  if (!known) throw new Error(`git has no user.name and user.email for ${root}; set them (git config), then run again`);
+}
+
 /** Stages and commits exactly `files` (other staged changes stay staged); returns the new HEAD. */
 function commitFiles(root, files, message) {
   const add = gitResult(root, ['add', '--', ...files]);
@@ -395,7 +401,8 @@ function record(root, standards) {
  * of a new project, before `git init`). With `apply` it writes the missing files (never overwrites), commits
  * them in one commit (no push), records `standards` in the enclosing workspace.json and returns the
  * plan's files with `created`, `skipped`, `commit` and `workspace`; `items` show the state afterwards.
- * Throws before writing anything when an option is invalid or `dir` is no git repo.
+ * Throws before writing anything when an option is invalid, `dir` is no git repo, or (with files to write)
+ * git has no identity to commit with.
  */
 export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
   const root = repoFolder(dir, opts);
@@ -404,6 +411,7 @@ export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
   const plan = report(root, model, sel);
   if (!opts.apply) return { ok: true, repo: root, applied: false, ...plan };
 
+  if (plan.files.some((f) => f.state === 'create')) requireIdentity(root);
   const created = [];
   const skipped = [];
   for (const { path, content } of filesOf(sel)) {

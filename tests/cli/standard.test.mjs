@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanup, cli, codeRepo, gitIn, tmp } from '../helpers/cli.mjs';
+import { cleanup, cli, codeRepo, gitIn, gitInit, tmp } from '../helpers/cli.mjs';
 
 after(cleanup);
 
@@ -119,4 +119,15 @@ test('the plan for a repo folder that does not exist yet lists every file to cre
   assert.equal(apply.status, 1);
   assert.match(apply.stderr, /^buildorder: not a folder: /, '--apply still needs the git repo');
   assert.equal(existsSync(dir), false);
+});
+
+test('--apply without a git identity fails before writing anything', () => {
+  const dir = gitInit(tmp('standard no identity'));
+  // The fake home has no global config; this makes git use only configured identities, as on a fresh machine.
+  const env = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'user.useConfigOnly', GIT_CONFIG_VALUE_0: 'true' };
+  const r = cli('standard', dir, '--stack', 'django', '--deploy', 'none', '--starter', '--apply', { env });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^buildorder: git has no user\.name and user\.email for .+; set them \(git config\), then run again\n$/);
+  assert.equal(r.stdout, '');
+  assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '', 'nothing written');
 });
