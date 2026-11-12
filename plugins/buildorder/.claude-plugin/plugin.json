@@ -1,6 +1,6 @@
 {
   "name": "buildorder",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Claude Code plugin that sets up the engineering around your agent.",
   "author": {
     "name": "Philipp Klinger"
