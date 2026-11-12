@@ -8,8 +8,6 @@ A Claude Code plugin that sets up a workspace and engineering standards for your
 
 Your agent writes the code. Buildorder builds the engineering around it.
 
-> **Pre-release (0.x).** Interfaces may change between versions.
-
 ```mermaid
 flowchart LR
   dev["Developer"]
@@ -50,11 +48,11 @@ flowchart LR
 ## Installation
 
 ```text
-/plugin marketplace add PhilippKlinger/buildorder#v0.2.0
+/plugin marketplace add PhilippKlinger/buildorder#v1.0.0
 /plugin install buildorder@buildorder
 ```
 
-`#v0.2.0` pins the marketplace to that release tag; without it, the marketplace follows `main`.
+`#v1.0.0` pins the marketplace to that release tag; without it, the marketplace follows `main`.
 Install the plugin at user scope (the default of `claude plugin install`). To turn it off for one project,
 disable it there with `/plugin` (project scope).
 
