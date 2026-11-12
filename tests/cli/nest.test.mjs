@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readdirSync, readFileSync, realpathSync, renameSync, watch, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, realpathSync, renameSync, symlinkSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { nest } from '../../plugins/buildorder/lib/nest.mjs';
 import { repoRoot } from '../helpers/repo.mjs';
@@ -224,6 +224,27 @@ test('refuses while a marker file from an earlier run exists and names its targe
   assert.deepEqual(sorted(dir), entries);
 });
 
+test('never reads a marker that is a link or holds more than a folder name', (t) => {
+  const dir = codeRepo('marker link');
+  write(dir, { 'secret.txt': 'SECRET-CONTENT-12345\n' });
+  try {
+    symlinkSync('secret.txt', join(dir, '.buildorder-nest-789'));
+  } catch (err) {
+    if (['EPERM', 'EACCES', 'ENOSYS'].includes(err.code)) return t.skip('symlinks are not permitted here');
+    throw err;
+  }
+  const out = runNest(dir);
+  assert.equal(out.ok, false);
+  assert.ok(out.reason.includes('.buildorder-nest-789'), out.reason);
+  assert.ok(!out.reason.includes('SECRET-CONTENT'), out.reason);
+
+  const odd = codeRepo('marker odd content');
+  write(odd, { '.buildorder-nest-790': 'not a folder name/../etc\n' });
+  const r = runNest(odd);
+  assert.equal(r.ok, false);
+  assert.ok(!r.reason.includes('etc'), r.reason);
+});
+
 test('moves while a watcher holds .claude open (Windows EPERM on a folder rename)', () => {
   const dir = codeRepo('watched');
   write(dir, { '.claude/settings.local.json': '{}\n' });
@@ -333,6 +354,7 @@ test('reports entries left in the repo folder when the rollback fails too', () =
   assert.match(out.reason, /rollback is incomplete/);
   assert.ok(out.reason.includes(target), out.reason);
   assert.match(out.reason, /package\.json/);
+  assert.ok(out.reason.includes(`.buildorder-nest-${process.pid}`), 'the reason names the marker');
   assert.equal(out.moved, 1, 'one entry is not back in place');
   assert.ok(existsSync(join(target, 'package.json')), 'the stuck entry is where the reason says');
   assert.ok(existsSync(join(dir, '.git')), 'the other entries returned');

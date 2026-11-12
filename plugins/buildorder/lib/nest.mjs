@@ -151,15 +151,22 @@ export function nest(dir, repoPath, { rename = renameSync, unlink = unlinkSync }
   const leftover = top.find((e) => STAGING.test(e));
   if (leftover) {
     const path = join(root, leftover);
-    if (lstatSync(path).isDirectory()) { // staging folder of nest 0.1.0
+    let st = null;
+    try {
+      st = lstatSync(path);
+    } catch { /* vanished since the listing: treated like a marker without a hint */ }
+    if (st?.isDirectory()) { // staging folder of nest 0.1.0
       return refuse(`an earlier nest left ${path}; move its contents back into ${root} `
         + 'and remove it, then retry');
     }
+    // Only a short plain file is read (never a link or device), and only a valid folder name is quoted.
     let target = '';
-    try {
-      target = readFileSync(path, 'utf8').trim();
-    } catch { /* unreadable: the hint below is left out */ }
-    const hint = target ? ` and may have moved entries into ${join(root, target)}` : '';
+    if (st?.isFile() && st.size <= 64) {
+      try {
+        target = readFileSync(path, 'utf8').trim();
+      } catch { /* unreadable: the hint below is left out */ }
+    }
+    const hint = validName(target) ? ` and may have moved entries into ${join(root, target)}` : '';
     return refuse(`an earlier nest left ${path}${hint}; move those entries back into ${root} `
       + 'and remove the marker file and the empty folder, then retry');
   }
@@ -218,7 +225,8 @@ export function nest(dir, repoPath, { rename = renameSync, unlink = unlinkSync }
     const back = rollBack({ root, holder: repoDir, entries, move });
     if (!back.complete) {
       return refuse(`moving '${at}' failed (${code}) and the rollback is incomplete; ${back.detail}. `
-        + `Move these back into ${root} by hand.`, back.moved);
+        + `Move these back into ${root} by hand; the marker file ${marker} stays until then and can be deleted afterwards.`,
+      back.moved);
     }
     const advice = 'Close programs that use files in the folder (dev server, editor, terminal), then retry.';
     if (!dropMarker()) {

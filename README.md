@@ -57,14 +57,14 @@ It does the following:
 - Compaction guard: after a compaction, asks to re-sync from the handoff before continuing.
 - Handoff reminder: when commits are newer than the handoff file.
 
-**Stack:** `django` in 0.1.0. Other stacks get the workspace and the stack-independent CI only.
+**Stack:** `django` so far. Other stacks get the workspace and the stack-independent CI only.
 
 **Deploy targets:** `container`, `paas`, `webspace` or `none`. The container image (Trivy scan, SBOM,
 build-provenance attestation) and its CD come from the `docker-cicd` module.
 
 ## Limits and safety
 
-- Buildorder never pushes, never creates repositories and never calls the GitHub API in 0.1.0.
+- Buildorder never pushes, never creates repositories and never calls the GitHub API at present.
   GitHub settings are a checklist with ready commands that you run.
 - Hooks are guardrails, not a guarantee. Known limits: the `if: Bash(git *)` filter does not see
   `/usr/bin/git`, `git.exe` or `sh -c`; `onFailure: block` needs `node`; only `commit` is scanned.
