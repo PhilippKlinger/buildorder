@@ -183,7 +183,8 @@ Known limits:
   GitHub settings are a checklist with ready commands that you run.
 - Hooks are guardrails, not a guarantee; see [Security model](#security-model) for what they do and their known
   limits.
-- Private repos skip CodeQL and Dependency Review (paid GitHub products) and record this as a deviation.
+- Private repos skip CodeQL and Dependency Review (paid GitHub products: GitHub Code Security, which GitHub offers only
+  for organization-owned repos on Team or Enterprise Cloud) and record this as a deviation.
 - Behind a reverse proxy that terminates TLS, set `DJANGO_BEHIND_PROXY=true` for the Django starter.
 
 ## License
