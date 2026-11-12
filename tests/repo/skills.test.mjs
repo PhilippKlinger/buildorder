@@ -1,4 +1,5 @@
 // The plugin's skills: valid frontmatter, auto-invocable, CLI called via the plugin root, English, no personal names.
+// init runs only when the user invokes it, with exact CLI and git patterns instead of blanket tools.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -10,6 +11,8 @@ const SKILLS = join(repoRoot, 'plugins', 'buildorder', 'skills');
 const WORKFLOW = ['assess', 'handoff', 'kickoff'];
 const CLI = '"${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs"';
 const STATUS_INJECTION = '!`node ' + CLI + ' status`';
+const DETECT_INJECTION = '!`node ' + CLI + ' detect .`';
+const INIT_COMMANDS = ['detect', 'nest', 'scaffold', 'standard', 'verify', 'finalize', 'github-checklist'];
 
 const UMLAUT = new RegExp(`[${String.fromCharCode(0xe4, 0xf6, 0xfc, 0xc4, 0xd6, 0xdc, 0xdf)}]`); // built from codes: this file stays ASCII
 // Common German function words that have no English homograph.
@@ -56,6 +59,44 @@ test('frontmatter values are valid YAML plain scalars or quoted', () => {
 test('workflow skills stay automatically invocable', () => {
   for (const name of WORKFLOW) {
     assert.doesNotMatch(read(name), /^disable-model-invocation:/m, name);
+  }
+});
+
+test('init ships, runs only when the user invokes it, and injects the folder finding', () => {
+  assert.ok(skills().includes('init'), 'skills/init/SKILL.md missing');
+  const text = read('init');
+  assert.equal(frontmatter(text)['disable-model-invocation'], 'true');
+  assert.ok(text.includes(DETECT_INJECTION), 'detect injection missing');
+});
+
+// Splits `A(x, y), B` at the commas outside parentheses.
+const toolRules = (name) => (frontmatter(read(name))['allowed-tools'] ?? '')
+  .split(/,\s*(?![^()]*\))/).map((r) => r.trim()).filter(Boolean);
+
+test('init allows only exact CLI commands and git init, no blanket Bash, PowerShell, Write or Edit', () => {
+  const rules = toolRules('init');
+  assert.ok(rules.length > 0);
+  for (const rule of rules) {
+    const m = rule.match(/^(Bash|PowerShell)\((.*)\)$/);
+    if (!m) {
+      assert.ok(['Read', 'Grep', 'Glob', 'AskUserQuestion'].includes(rule), `unexpected tool rule: ${rule}`);
+      continue;
+    }
+    const cmd = m[2];
+    const sub = cmd.startsWith(`node ${CLI} `) ? cmd.slice(`node ${CLI} `.length) : null;
+    const name = sub?.match(/^([a-z-]+) \*$/)?.[1];
+    assert.ok(cmd === 'git init *' || INIT_COMMANDS.includes(name), `${rule}: only exact CLI commands and git init`);
+  }
+});
+
+test('every live command of a skill is allowed by its own allowed-tools (else the skill aborts)', () => {
+  const glob = (pattern) => new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  for (const name of skills()) {
+    const text = read(name);
+    const allowed = toolRules(name).map((r) => r.match(/^Bash\((.*)\)$/)?.[1]).filter(Boolean).map(glob);
+    for (const [, cmd] of text.matchAll(/^!`([^`]+)`/gm)) {
+      assert.ok(allowed.some((re) => re.test(cmd)), `${name}: live command not allowed: ${cmd}`);
+    }
   }
 });
 
