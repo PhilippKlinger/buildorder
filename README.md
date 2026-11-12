@@ -126,26 +126,27 @@ requests and on demand. Its `ci-ok` job is the required check of the ruleset in 
   on `main` a push to GHCR by digest with a build-provenance attestation (public repos). CD for `container` and
   `webspace` runs only once the repository variable `DEPLOY_ENABLED` is `true`.
 
-Trivy runs as the pinned `aquasecurity/trivy-action`, the one scanner in this pipeline that comes as an action not
-published by GitHub; zizmor and gitleaks run as pinned tool versions (pipx, and a container image pinned by digest).
+Trivy runs as the pinned `aquasecurity/trivy-action`; together with the SBOM step (`anchore/sbom-action`) it is one of
+the only two actions in this pipeline not published by GitHub; zizmor and gitleaks run as pinned tool versions (pipx,
+and a container image pinned by digest).
 
 **Buildorder's own CI** (`.github/workflows/ci.yml`) runs on pushes to `main`, on pull requests, weekly and on
 demand; `ci-ok` requires every job to succeed.
 
 - `test`: the full test suite and the hook timing test on Ubuntu, Windows and macOS with Node 22 and 24.
 - `validate`: `claude plugin validate --strict` for the marketplace and the plugin.
-- `pre-commit`: the repo's pre-commit hooks, gitleaks included.
+- `pre-commit`: the repo's pre-commit hooks.
 - `zizmor`: zizmor over this repo's workflows and over the workflows `standard` generates, then actionlint over
   the generated ones.
 - `django-fixture`: writes the Django starter and its pipeline into an empty repo and runs that pipeline's core
   steps on it: lint, tests with coverage against PostgreSQL, build checks, dependency audit, image build and Trivy.
-- `gitleaks`: `gitleaks/gitleaks-action`; pushes and pull requests scan their new commits, the weekly and manual
-  runs scan the full history.
+- `gitleaks`: `gitleaks/gitleaks-action`; pull requests scan their commits; the weekly and manual runs scan the full
+  history.
 - `codeql`: CodeQL for JavaScript and GitHub Actions.
 
 actionlint runs from its official release archive, pinned by version and SHA-256, because no pinned action checks
 the generated workflows in the same job. A separate `scorecard.yml` runs OpenSSF Scorecard on pushes to `main`,
-weekly and on branch protection changes, and publishes the result; it rates the repo and is not part of `ci-ok`.
+weekly, and publishes the result; it rates the repo and is not part of `ci-ok`.
 
 ## Security model
 
