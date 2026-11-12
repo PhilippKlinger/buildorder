@@ -52,8 +52,6 @@ jobs:
     environment: production
     permissions:
       contents: read
-    env:
-      SSH_DIR: ${{ runner.temp }}/deploy-ssh
     steps:
       - name: Check out the compose file
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,10 +83,11 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           set -Eeuo pipefail
+          SSH_DIR="${RUNNER_TEMP}/deploy-ssh"
           for NAME in SSH_HOST SSH_PORT SSH_USER SSH_PRIVATE_KEY SSH_KNOWN_HOSTS DEPLOY_PATH; do
             [[ -n "${!NAME:-}" ]] || { echo "::error::Required deployment secret ${NAME} is missing or empty."; exit 1; }
           done
-          [[ "${SSH_PORT}" =~ ^[0-9]+$ ]] && (( SSH_PORT >= 1 && SSH_PORT <= 65535 )) || { echo "::error::SSH_PORT must be 1-65535."; exit 1; }
+          if ! [[ "${SSH_PORT}" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then echo "::error::SSH_PORT must be 1-65535."; exit 1; fi
           [[ "${SSH_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.:-]*$ ]] || { echo "::error::SSH_HOST has an invalid format."; exit 1; }
           [[ "${SSH_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "::error::SSH_USER has an invalid format."; exit 1; }
           [[ "${DEPLOY_PATH}" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "::error::DEPLOY_PATH must be an absolute path without whitespace."; exit 1; }
@@ -122,6 +121,7 @@ jobs:
           REQUIRED_ENV: ${{ vars.REQUIRED_ENV }}
         run: |
           set -Eeuo pipefail
+          SSH_DIR="${RUNNER_TEMP}/deploy-ssh"
           ssh -F "${SSH_DIR}/config" target "set -Eeuo pipefail
             cd '${DEPLOY_PATH}'
             command -v docker > /dev/null && docker info > /dev/null && docker compose version > /dev/null || { echo 'Docker/Compose not usable by the deploy user.' >&2; exit 1; }
@@ -137,6 +137,7 @@ jobs:
           IMAGES: ${{ inputs.images }}
         run: |
           set -Eeuo pipefail
+          SSH_DIR="${RUNNER_TEMP}/deploy-ssh"
           TMP="${DEPLOY_PATH}/.compose.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
           scp -F "${SSH_DIR}/config" -B "${COMPOSE_FILE}" "target:${TMP}"
           EXPORTS="$(sed -E '/^\s*$/d; s/^/export /' <<< "${IMAGES}")"
@@ -158,6 +159,7 @@ jobs:
           READINESS_URLS: ${{ vars.READINESS_URLS }}
         run: |
           set -Eeuo pipefail
+          SSH_DIR="${RUNNER_TEMP}/deploy-ssh"
           EXPORTS="$(sed -E '/^\s*$/d; s/^/export /' <<< "${IMAGES}")"
           URLS="$(tr '\n' ' ' <<< "${READINESS_URLS}")"
           ssh -F "${SSH_DIR}/config" target "set -Eeuo pipefail
@@ -181,6 +183,7 @@ jobs:
           IMAGES: ${{ inputs.images }}
         run: |
           set -Eeuo pipefail
+          SSH_DIR="${RUNNER_TEMP}/deploy-ssh"
           ssh -F "${SSH_DIR}/config" target "set -Eeuo pipefail
             cd '${DEPLOY_PATH}'
             RUNNING=\"\$(docker compose -f '${COMPOSE_FILE}' ps -q | xargs docker inspect -f '{{.Image}}')\"
@@ -192,4 +195,4 @@ jobs:
 
       - name: Remove temporary SSH material
         if: always()
-        run: rm -rf "${SSH_DIR}"
+        run: rm -rf "${RUNNER_TEMP}/deploy-ssh"

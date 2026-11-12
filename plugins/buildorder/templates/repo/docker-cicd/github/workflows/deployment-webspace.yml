@@ -63,8 +63,6 @@ jobs:
       contents: read
       packages: read
     env:
-      CRED_DIR: ${{ runner.temp }}/webspace-cred
-      SITE_DIR: ${{ runner.temp }}/site
       PROTOCOL: ${{ vars.WEBSPACE_PROTOCOL || 'sftp' }}
     steps:
       - name: Verify the immutable image reference
@@ -87,6 +85,7 @@ jobs:
           SITE_PATH: ${{ inputs.site_path }}
         run: |
           set -Eeuo pipefail
+          SITE_DIR="${RUNNER_TEMP}/site"
           echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
           docker pull --quiet "${IMAGE}"
           ID="$(docker create "${IMAGE}")"
@@ -98,6 +97,7 @@ jobs:
       - name: Check the build before it leaves the runner
         run: |
           set -Eeuo pipefail
+          SITE_DIR="${RUNNER_TEMP}/site"
           test -f "${SITE_DIR}/index.html" || { echo "::error::index.html missing in the image."; exit 1; }
           # Apache reads the security headers from .htaccess; without it the site would go live without them.
           test -f "${SITE_DIR}/.htaccess" || { echo "::error::.htaccess missing in the build."; exit 1; }
@@ -118,12 +118,13 @@ jobs:
           WEBSPACE_PASSWORD: ${{ secrets.WEBSPACE_PASSWORD }}
         run: |
           set -Eeuo pipefail
+          CRED_DIR="${RUNNER_TEMP}/webspace-cred"
           REQUIRED="WEBSPACE_HOST WEBSPACE_PORT WEBSPACE_USER WEBSPACE_PATH"
           if [[ "${PROTOCOL}" == sftp ]]; then REQUIRED+=" WEBSPACE_SSH_KEY WEBSPACE_KNOWN_HOSTS"; else REQUIRED+=" WEBSPACE_PASSWORD"; fi
           for NAME in ${REQUIRED}; do
             [[ -n "${!NAME:-}" ]] || { echo "::error::Required deployment secret ${NAME} is missing or empty."; exit 1; }
           done
-          [[ "${WEBSPACE_PORT}" =~ ^[0-9]+$ ]] && (( WEBSPACE_PORT >= 1 && WEBSPACE_PORT <= 65535 )) || { echo "::error::WEBSPACE_PORT must be 1-65535."; exit 1; }
+          if ! [[ "${WEBSPACE_PORT}" =~ ^[0-9]+$ ]] || (( WEBSPACE_PORT < 1 || WEBSPACE_PORT > 65535 )); then echo "::error::WEBSPACE_PORT must be 1-65535."; exit 1; fi
           [[ "${WEBSPACE_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || { echo "::error::WEBSPACE_HOST has an invalid format."; exit 1; }
           [[ "${WEBSPACE_USER}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::WEBSPACE_USER has an invalid format."; exit 1; }
           [[ "${WEBSPACE_PATH}" =~ ^/[A-Za-z0-9._/-]+$ && "${WEBSPACE_PATH}" != / ]] || { echo "::error::WEBSPACE_PATH must be an absolute folder below /."; exit 1; }
@@ -160,6 +161,8 @@ jobs:
           WEBSPACE_KEEP: ${{ vars.WEBSPACE_KEEP }}
         run: |
           set -Eeuo pipefail
+          CRED_DIR="${RUNNER_TEMP}/webspace-cred"
+          SITE_DIR="${RUNNER_TEMP}/site"
           # Only the root index.html waits; sub-pages go up with their assets.
           OPTS="--reverse --verbose=1 --parallel=4 --exclude ^index\.html$"
           [[ "${WEBSPACE_DELETE}" == true ]] && OPTS+=" --delete"
@@ -181,4 +184,4 @@ jobs:
 
       - name: Remove credentials
         if: always()
-        run: rm -rf "${CRED_DIR}" "${SITE_DIR}"
+        run: rm -rf "${RUNNER_TEMP}/webspace-cred" "${RUNNER_TEMP}/site"

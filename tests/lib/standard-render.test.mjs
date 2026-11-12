@@ -128,10 +128,46 @@ test('every template and generated uses: is pinned to a commit SHA with a versio
   assert.ok(count > 10, `found ${count} uses: lines`);
 });
 
-test('the CI sample helper writes both CD variants for the zizmor step', () => {
+/**
+ * Lines of the `env:` blocks at workflow level (column 0) and job level (four spaces, below a job id),
+ * the levels where GitHub rejects the runner, steps and job contexts when it loads the file.
+ */
+function envBlockLines(yaml) {
+  const lines = yaml.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^( *)env:\s*$/);
+    if (!m || (m[1].length !== 0 && m[1].length !== 4)) continue;
+    for (let j = i + 1; j < lines.length && (lines[j].trim() === '' || lines[j].search(/\S/) > m[1].length); j++) {
+      out.push(lines[j]);
+    }
+  }
+  return out;
+}
+
+test('no runner, steps, job or matrix context in workflow-level or job-level env', () => {
+  const variants = [
+    { stack: fake(), deploy: 'container', skip: new Set() },
+    { stack: fake(), deploy: 'webspace', skip: new Set() },
+    { stack: null, deploy: 'none', skip: new Set() },
+  ];
+  // The probe: a job-level env with runner.temp is what GitHub refuses ("Unrecognized named-value: 'runner'").
+  assert.deepEqual(envBlockLines('jobs:\n  a:\n    env:\n      X: ${{ runner.temp }}/x\n    steps: []\n'), ['      X: ${{ runner.temp }}/x']);
+  assert.deepEqual(envBlockLines('steps:\n      - env:\n          X: ${{ runner.temp }}\n'), [], 'step env may use runner');
+  for (const opts of variants) {
+    for (const { path, content } of render(opts)) {
+      if (!path.startsWith('.github/workflows/')) continue;
+      for (const line of envBlockLines(content)) {
+        assert.doesNotMatch(line, /\$\{\{[^}]*\b(runner|steps|job|matrix)\./, `${opts.deploy}:${path}: ${line.trim()}`);
+      }
+    }
+  }
+});
+
+test('the CI sample helper writes every CD variant for the zizmor and actionlint steps', () => {
   const out = tempDir('standard sample');
   execFileSync(process.execPath, [join(repoRoot, 'tests', 'helpers', 'standard-sample.mjs'), out], { stdio: 'pipe' });
-  for (const deploy of ['container', 'webspace']) {
+  for (const deploy of ['container', 'webspace', 'none']) {
     for (const { path, content } of render({ stack: fake(), deploy, skip: new Set() })) {
       assert.equal(readFileSync(join(out, deploy, ...path.split('/')), 'utf8'), content, `${deploy}: ${path}`);
     }
