@@ -94,6 +94,7 @@ test('python starter: every dependency is pinned exactly and the lockfile exists
   // The build backend is pinned too; the library has no runtime dependency to range.
   assert.match(starter['pyproject.toml'], /^requires = \["hatchling==\d+(\.\d+)+"\]$/m);
   assert.match(starter['pyproject.toml'], /^dependencies = \[\]$/m);
+  assert.match(starter['pyproject.toml'], /^pythonpath = \["src"\]$/m, 'a plain pytest finds the package without an install');
 });
 
 test('python starter: .gitattributes forces LF', () => {
