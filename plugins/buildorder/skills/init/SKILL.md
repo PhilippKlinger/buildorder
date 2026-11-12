@@ -72,7 +72,9 @@ Pass `--stack` only with a stack that has a module (today `django`), never anoth
 `github-actions`; otherwise leave it out (for an existing repo, `plan` picks the detected stack itself).
 Show compactly:
 - **Workspace:** `CLAUDE.md`, `.claude/workspace.json`, the six doc-map files, `docs/github-settings.md`,
-  `docs/github-ruleset.json`; for an existing project also the audit file in `docs/audits/`.
+  `docs/github-ruleset.json`; for an existing project also the audit file in `docs/audits/`. The folder becomes
+  a private docs repo (`git init`, no commit) unless it already is one, with the repo folders and
+  `.claude/settings.local.json` in `.gitignore`.
 - **Repo:** new project: the plan's `files` plus, with `django`, the module's tested starter, in one commit, no push. Existing project: unchanged; every
   `missing` item becomes a backlog task.
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be
@@ -90,7 +92,9 @@ Ask: set it up like this, or change something. A change goes back into the plan.
 **New project:**
 1. `scaffold . --lang <lang> --new-repo "<repo>" --visibility <v>`: it creates the repo with `git init` on `main`.
 2. `standard "<repo>" <options of the plan> --apply`, with `django` also `--starter`: one commit in the repo, never
-   a push. If git has no identity, give the user the two `git config` commands to run, then repeat.
+   a push. If git has no identity, give the user the two `git config` commands to run, then repeat. If it reports
+   `ok: false`, git refused the commit (for example signing or a hook): name the `reason`, let the user fix it,
+   then repeat; the rerun commits the files already written.
 
 **Existing project:**
 1. `scaffold . --lang <lang> --repo "<repo>" --visibility <v>`
@@ -125,7 +129,7 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
 ## 6. Close
 
 At most 12 lines: what was set up, the number of backlog tasks, the assumptions made, and what did not happen
-(no GitHub repo, no push, no build). Then one short list of recommendations, nothing installed:
+(no GitHub repo, no push, no build, no docs commit: the first comes with `/buildorder:handoff`). Then one short list of recommendations, nothing installed:
 - the `notes` of the plan (for example installing the pre-commit hooks), and the proxy note of step 2
 - the Superpowers plugin, and the code-intelligence plugin for the stack's language
 - open a new session so the hooks load, then start with `/buildorder:kickoff`
