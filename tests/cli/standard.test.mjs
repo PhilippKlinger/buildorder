@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { chmodSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, gitIn, gitInit, tmp, write } from '../helpers/cli.mjs';
 
@@ -130,6 +130,40 @@ test('--apply without a git identity fails before writing anything', () => {
   assert.match(r.stderr, /^buildorder: git has no user\.name and user\.email for .+; set them \(git config\), then run again\n$/);
   assert.equal(r.stdout, '');
   assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '', 'nothing written');
+});
+
+test('--apply reports a failed commit with ok false and keeps the files; a rerun commits them', () => {
+  const dir = localGit(codeRepo('standard commit fails', { 'README.md': '# notes\n' }));
+  // A real pre-commit hook that refuses, in the hooks folder localGit points core.hooksPath to.
+  const hooks = join(dir, '.git', 'no-hooks');
+  write(hooks, { 'pre-commit': '#!/bin/sh\necho "refused by hook" >&2\nexit 1\n' });
+  chmodSync(join(hooks, 'pre-commit'), 0o755);
+  const failed = cli('standard', dir, '--apply', '--deploy', 'none');
+  assert.equal(failed.status, 1);
+  assert.equal(failed.json?.ok, false, failed.stdout);
+  assert.match(failed.json.reason, /^git commit failed: refused by hook$/);
+  assert.equal(failed.json.commit, null);
+  assert.deepEqual(failed.json.created, CORE_FILES);
+  for (const f of CORE_FILES) assert.ok(existsSync(join(dir, ...f.split('/'))), `${f} stays in place`);
+  assert.equal(gitIn(dir, 'rev-list', '--count', 'HEAD'), '1');
+
+  rmSync(join(hooks, 'pre-commit'));
+  const rerun = standard(dir, '--apply', '--deploy', 'none');
+  assert.equal(rerun.ok, true);
+  assert.deepEqual(rerun.created, []);
+  assert.deepEqual(rerun.committed, CORE_FILES);
+  assert.equal(rerun.commit, gitIn(dir, 'rev-parse', 'HEAD'));
+  assert.equal(gitIn(dir, 'rev-list', '--count', 'HEAD'), '2');
+  assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '');
+});
+
+test('--apply never commits a file of the user that only shares a path with the plan', () => {
+  const dir = localGit(codeRepo('standard own file', { 'README.md': '# notes\n' }));
+  write(dir, { '.pre-commit-config.yaml': 'repos: []\n' });
+  const out = standard(dir, '--apply', '--deploy', 'none');
+  assert.deepEqual(out.skipped, ['.pre-commit-config.yaml']);
+  assert.deepEqual(out.committed, CORE_FILES.filter((f) => f !== '.pre-commit-config.yaml'));
+  assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '?? .pre-commit-config.yaml');
 });
 
 const gapRows = (text) => text.split('\n').filter((l) => l.startsWith('| STD-'));

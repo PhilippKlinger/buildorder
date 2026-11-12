@@ -1,6 +1,6 @@
 ---
 name: review
-description: Code review of one repo in a Buildorder workspace. Runs the built-in /code-review, then checks the project's own criteria (standard model, recorded deviations, spec acceptance criteria) and reports findings by severity with a merge-ready verdict. Reports only, changes nothing.
+description: Code review of one repo in a Buildorder workspace. Runs the built-in /code-review, then checks the project's own criteria (standard model, recorded deviations, spec acceptance criteria) and reports findings by severity with a merge-ready verdict. Reports only, changes nothing. Use only inside a Buildorder workspace.
 argument-hint: "[repo path] [file, PR number, branch or range]"
 context: fork
 effort: high

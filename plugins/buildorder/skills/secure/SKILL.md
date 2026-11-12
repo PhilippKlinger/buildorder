@@ -1,6 +1,6 @@
 ---
 name: secure
-description: Security and data protection audit of one repo in a Buildorder workspace. Runs the built-in /security-review (and Cloudflare security-audit when installed), then checks secrets, third parties, personal data and data flows, and reports findings by severity with a release-ready verdict. Argument "all" checks the whole repo. Reports only.
+description: Security and data protection audit of one repo in a Buildorder workspace. Runs the built-in /security-review (and Cloudflare security-audit when installed), then checks secrets, third parties, personal data and data flows, and reports findings by severity with a release-ready verdict. Argument "all" checks the whole repo. Reports only. Use only inside a Buildorder workspace.
 argument-hint: "[repo path] [all]"
 context: fork
 effort: high
