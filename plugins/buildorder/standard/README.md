@@ -18,7 +18,7 @@ handled elsewhere. `check` says how a repo is checked for an item (gap list for 
 ## Stack modules
 
 A stack module lives in `standard/stacks/<id>/`, where `<id>` is the stack id that `detect` reports
-(for example `django`). It provides the stack part of the mandatory pipeline:
+(`django`, `python`, `go`, `react`, `angular`, each supported with a tested starter). It provides the stack part of the mandatory pipeline:
 
 | File | Content |
 |---|---|
