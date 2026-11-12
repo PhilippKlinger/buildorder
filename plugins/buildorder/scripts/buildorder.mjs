@@ -8,12 +8,14 @@
 //                                [--new-repo <name>]   (git init -b main of the new project's repo)
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
-//   node buildorder.mjs github-checklist [dir]   (writes docs/github-settings.md and the ruleset; no API call)
+//   node buildorder.mjs github-checklist [dir] [--repo owner/name]   (writes docs/github-settings.md and the ruleset; no API call)
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--starter] [--apply]
 //                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
 //   node buildorder.mjs plan [repo] [same options as standard, without --starter and --apply; --gaps too]   (read-only)
 //   node buildorder.mjs sync [dir] [--apply]   (lists the template changes; --apply writes the untouched ones)
+//   node buildorder.mjs radar-state [dir]   (read-only: lastRun and the fixed source list)
+//   node buildorder.mjs radar-done [dir] <YYYY-MM-DD>   (records radar.lastRun in workspace.json)
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
 // problems (verify, finalize), and a standard --apply whose commit git refused, print the JSON report and
@@ -23,11 +25,13 @@ import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
 import { githubChecklist } from '../lib/github.mjs';
 import { nest } from '../lib/nest.mjs';
+import { radarDone, radarState } from '../lib/radar.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
 import { gapList, standard } from '../lib/standard.mjs';
 import { sync } from '../lib/sync.mjs';
 import { finalize, verify } from '../lib/verify.mjs';
 import { formatStatus, status } from '../lib/status.mjs';
+import { findWorkspaceRoot } from '../lib/workspace.mjs';
 
 // `args`: how many arguments a command takes after [dir]; `options`: node:util parseArgs options;
 // `check`: the result's `ok` sets the exit code; `text(result, values)`: plain text to print instead of
@@ -52,7 +56,7 @@ const COMMANDS = {
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
   finalize: { args: 0, check: true, run: (dir) => finalize(dir) },
-  'github-checklist': { args: 0, run: (dir) => githubChecklist(dir) },
+  'github-checklist': { args: 0, options: { repo: { type: 'string' } }, run: (dir, _args, opts) => githubChecklist(dir, opts) },
   standard: {
     args: 0,
     options: {
@@ -83,6 +87,14 @@ const COMMANDS = {
   },
   sync: { args: 0, options: { apply: { type: 'boolean' } }, run: (dir, _args, { apply }) => sync(dir, { apply: apply === true }) },
 };
+// radar-state is read-only (skills may pre-approve it); radar-done writes radar.lastRun to workspace.json.
+const wsRoot = (dir) => {
+  const root = findWorkspaceRoot(dir);
+  if (!root) throw new Error('not inside a Buildorder workspace (no .claude/workspace.json)');
+  return root;
+};
+COMMANDS['radar-state'] = { args: 0, run: (dir) => radarState(wsRoot(dir)) };
+COMMANDS['radar-done'] = { args: 1, run: (dir, [date]) => radarDone(wsRoot(dir), date) };
 const USAGE = `usage: buildorder.mjs <command> [dir] (commands: ${Object.keys(COMMANDS).join(', ')})`;
 
 function main(argv) {
