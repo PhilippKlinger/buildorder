@@ -1,0 +1,63 @@
+# Builds the image from the Dockerfile in the repo root and scans it on every run.
+# On main it pushes the image by digest, then attests its build provenance (public repos;
+# private repos need GitHub Enterprise Cloud for attestations).
+image:
+  needs: [__STACK_JOBS__]
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+    packages: write
+    id-token: write
+    attestations: write
+  outputs:
+    image: ${{ steps.push.outputs.image }}
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Name the image
+      id: name
+      run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+    - name: Build the image
+      env:
+        IMAGE: ${{ steps.name.outputs.image }}
+      run: docker build --tag "$IMAGE:$GITHUB_SHA" .
+    - name: Scan the image (Trivy)
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        image-ref: ${{ steps.name.outputs.image }}:${{ github.sha }}
+        exit-code: "1"
+        ignore-unfixed: true
+        severity: CRITICAL,HIGH
+    - name: Generate the SBOM
+      uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      with:
+        image: ${{ steps.name.outputs.image }}:${{ github.sha }}
+        format: spdx-json
+        artifact-name: sbom.spdx.json
+    - name: Log in to GHCR
+      if: github.event_name == 'push'
+      env:
+        TOKEN: ${{ github.token }}
+      run: echo "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    - name: Push the image and record its digest
+      if: github.event_name == 'push'
+      id: push
+      env:
+        IMAGE: ${{ steps.name.outputs.image }}
+      run: |
+        set -Eeuo pipefail
+        docker push --quiet "$IMAGE:$GITHUB_SHA"
+        REF="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$GITHUB_SHA")"
+        DIGEST="${REF#*@}"
+        [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+        echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+        echo "image=$IMAGE:$GITHUB_SHA@$DIGEST" >> "$GITHUB_OUTPUT"
+    - name: Attest the build provenance
+      if: github.event_name == 'push' && !github.event.repository.private
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-name: ${{ steps.name.outputs.image }}
+        subject-digest: ${{ steps.push.outputs.digest }}
+        push-to-registry: true
+        create-storage-record: false

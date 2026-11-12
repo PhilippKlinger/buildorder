@@ -1,0 +1,18 @@
+# CI written by buildorder. ci-ok is the required check for the ruleset on main.
+# Every action is pinned to a full commit SHA; Dependabot keeps the pins current.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Pull requests cancel outdated runs; a run on main (image push, deploy) always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
