@@ -1,11 +1,15 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { walk } from '../../plugins/buildorder/lib/fsx.mjs';
 import { loadStack, render } from '../../plugins/buildorder/lib/standard.mjs';
+import { cleanup, tempDir } from '../helpers/cli.mjs';
 import { repoRoot } from '../helpers/repo.mjs';
 import { FAKE_STACKS, jobIds, jobText, needsOf, runLines, usesLines } from '../helpers/standard.mjs';
+
+after(cleanup);
 
 const fake = () => loadStack('fake', FAKE_STACKS);
 const files = (opts) => Object.fromEntries(render(opts).map((f) => [f.path, f.content]));
@@ -122,6 +126,16 @@ test('every template and generated uses: is pinned to a commit SHA with a versio
     }
   }
   assert.ok(count > 10, `found ${count} uses: lines`);
+});
+
+test('the CI sample helper writes both CD variants for the zizmor step', () => {
+  const out = tempDir('standard sample');
+  execFileSync(process.execPath, [join(repoRoot, 'tests', 'helpers', 'standard-sample.mjs'), out], { stdio: 'pipe' });
+  for (const deploy of ['container', 'webspace']) {
+    for (const { path, content } of render({ stack: fake(), deploy, skip: new Set() })) {
+      assert.equal(readFileSync(join(out, deploy, ...path.split('/')), 'utf8'), content, `${deploy}: ${path}`);
+    }
+  }
 });
 
 test('generated workflows: least privilege, no persisted credentials, no expressions in run', () => {

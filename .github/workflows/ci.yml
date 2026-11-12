@@ -80,6 +80,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: pipx run zizmor==1.31.1 --persona regular .github/workflows
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      # AK-2, stack-independent part: the files `standard` writes for the fake stack with docker-cicd.
+      - name: Generate the standard's repo files
+        run: node tests/helpers/standard-sample.mjs "$RUNNER_TEMP/standard"
+      - name: Audit the generated workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pipx run zizmor==1.31.1 --persona regular "$RUNNER_TEMP/standard/container" "$RUNNER_TEMP/standard/webspace"
 
   gitleaks:
     runs-on: ubuntu-latest
