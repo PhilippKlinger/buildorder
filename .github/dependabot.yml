@@ -1,9 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    directories:
-      - "/"
-      - "/fixtures/*"
+    directory: "/"
     schedule:
       interval: "weekly"
     cooldown:
@@ -20,5 +18,31 @@ updates:
       default-days: 14
     groups:
       pre-commit:
+        patterns:
+          - "*"
+  # The django starter (the CI fixture of the stack module): its pinned requirements.
+  - package-ecosystem: "pip"
+    directory: "/plugins/buildorder/standard/stacks/django/starter"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      pip:
+        patterns:
+          - "*"
+    ignore:
+      # The starter stays on the Django LTS line; moving to the next LTS is a deliberate change.
+      - dependency-name: "django"
+        update-types: ["version-update:semver-major"]
+  # The base image of the django module's Dockerfile.
+  - package-ecosystem: "docker"
+    directory: "/plugins/buildorder/standard/stacks/django/docker"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 14
+    groups:
+      docker:
         patterns:
           - "*"
