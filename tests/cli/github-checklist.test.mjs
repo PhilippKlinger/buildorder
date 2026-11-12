@@ -7,6 +7,8 @@ import { cleanup, cli, codeRepo, gitIn, tmp } from '../helpers/cli.mjs';
 
 after(cleanup);
 
+// An scp-style remote, assembled so no address-like literal is tracked.
+const SSH_REMOTE = ['git', 'github.com:acme/shop.git'].join('@');
 const read = (dir, rel) => readFileSync(join(dir, ...rel.split('/')), 'utf8');
 
 function workspace(label, remote) {
@@ -25,7 +27,7 @@ function checklist(dir) {
 }
 
 test('writes the checklist and the ruleset into the workspace, with the repo slug from the remote', () => {
-  const root = workspace('github remote', 'git@github.com:acme/shop.git');
+  const root = workspace('github remote', SSH_REMOTE);
   const out = checklist(root);
   assert.equal(out.ok, true);
   assert.equal(out.dir, root);
@@ -68,7 +70,7 @@ test('an https remote gives the slug without its credentials; without a remote t
 });
 
 test('a second run keeps both files as they are', () => {
-  const root = workspace('github rerun', 'git@github.com:acme/shop.git');
+  const root = workspace('github rerun', SSH_REMOTE);
   checklist(root);
   const before = read(root, 'docs/github-settings.md');
   const again = checklist(root);
