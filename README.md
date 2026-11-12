@@ -97,7 +97,7 @@ session from these docs.
 | `/buildorder:review` | Code review with the project's own criteria (reports only) |
 | `/buildorder:secure` | Security and data protection audit (reports only) |
 | `/buildorder:sync` | Lists what the installed templates would add or update in `CLAUDE.md` and the doc-map; writes after your OK and never overwrites a file you changed |
-| `/buildorder:radar` | Reads the official Claude Code sources for news since the last run and proposes at most three changes; changes no files |
+| `/buildorder:radar` | Reads the official Claude Code sources for news since the last run and proposes at most three changes; changes no files except the run date in `.claude/workspace.json` |
 
 **Hooks**
 
@@ -113,7 +113,7 @@ session from these docs.
 |---|---|
 | `django` | ruff, pytest with coverage against PostgreSQL, `manage.py check --deploy` and `collectstatic`, pip-audit |
 | `python` | ruff, pytest with coverage, `python -m build`, pip-audit (a library starter) |
-| `go` | `go test -race` with coverage, `go build`, `go mod verify`, govulncheck |
+| `go` | golangci-lint, `go test -race` with coverage, `go build`, `go mod verify`, govulncheck |
 | `react` | eslint, `tsc`, prettier, vitest with coverage, `vite build`, `npm audit` |
 | `angular` | `ng lint`, prettier, `ng test --coverage`, `ng build`, `npm audit` |
 
@@ -163,7 +163,8 @@ weekly, and publishes the result; it rates the repo and is not part of `ci-ok`.
 
 **Releases.** The release workflow builds the archive from the tagged commit and attaches a build-provenance
 attestation. Verify a downloaded archive with
-`gh attestation verify buildorder-<tag>.tar.gz --repo PhilippKlinger/buildorder`.
+`gh attestation verify buildorder-<tag>.tar.gz --repo PhilippKlinger/buildorder --signer-workflow PhilippKlinger/buildorder/.github/workflows/release.yml`.
+Only the archive attached to the release is attested; GitHub's automatic source archives are not.
 
 ## Security model
 
@@ -198,6 +199,8 @@ Known limits:
 
 - Buildorder never pushes, never creates repositories and never calls the GitHub API at present.
   GitHub settings are a checklist with ready commands that you run.
+- No telemetry. Data leaves your machine only when `/buildorder:radar` fetches the fixed public Claude Code pages
+  (WebFetch) and through `gh` commands that you run yourself.
 - Hooks are guardrails, not a guarantee; see [Security model](#security-model) for what they do and their known
   limits.
 - Private repos skip CodeQL and Dependency Review (paid GitHub products: GitHub Code Security, which GitHub offers only
