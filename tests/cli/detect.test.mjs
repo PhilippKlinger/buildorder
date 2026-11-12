@@ -65,7 +65,9 @@ test('folder of repos suggests multi-repo', () => {
   assert.equal(web.hasTests, false);
   assert.deepEqual(web.docker, { dockerfile: false, compose: false });
   assert.deepEqual(Object.keys(web).sort(),
-    ['ahead', 'branch', 'deploy', 'dirty', 'docker', 'hasTests', 'path', 'remote', 'stacks', 'unsupported', 'workflows']);
+    ['ahead', 'branch', 'deploy', 'dirty', 'docker', 'hasTests', 'isCode', 'path', 'remote', 'stacks', 'unsupported', 'workflows']);
+  assert.equal(api.isCode, true);
+  assert.equal(web.isCode, true);
 });
 
 test('single nested repo suggests existing', () => {
@@ -188,7 +190,17 @@ test('docs-only git repo is not code', () => {
   const p = detect(parent);
   assert.deepEqual(p.repos.map((r) => r.path), ['app', 'docs']);
   assert.deepEqual(byPath(p).docs.stacks, []);
+  assert.equal(byPath(p).docs.isCode, false, 'docs-only repo');
+  assert.equal(byPath(p).app.isCode, true);
   assert.equal(p.suggestion, 'existing', 'one code repo, not multi-repo');
+});
+
+test('a repo with source files but no stack is code', () => {
+  const parent = tmp('plain code');
+  codeRepo(null, { 'src/main.go': 'package main\n' }, { dir: join(parent, 'tool') });
+  const tool = byPath(detect(parent)).tool;
+  assert.deepEqual(tool.stacks, []);
+  assert.equal(tool.isCode, true);
 });
 
 test('loose code files without git suggest existing', () => {

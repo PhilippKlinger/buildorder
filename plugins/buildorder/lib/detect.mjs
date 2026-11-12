@@ -143,10 +143,12 @@ function dockerOf(dir) {
   };
 }
 
-function repoInfo(dir, path, { supported, unsupported }) {
+function repoInfo(dir, path, { stacks: { supported, unsupported }, isCodeRepo }) {
   const status = gitStatus(dir);
   return {
     path,
+    // Docs-only repos (notes, contracts) are listed but are no code repos.
+    isCode: isCodeRepo,
     stacks: supported,
     unsupported,
     deploy: detectDeploy(dir),
@@ -345,7 +347,7 @@ export function detect(dir, { home = homedir() } = {}) {
     blockedReason,
     workspace,
     // Also listed when blocked: the output stays true to the folder, and the cost is a few git calls per repo.
-    repos: nested.map((r) => repoInfo(r.abs, r.path, r.code.stacks)),
+    repos: nested.map((r) => repoInfo(r.abs, r.path, r.code)),
     workspaceProposal: suggestion === 'repo-root' ? proposal(root, entries) : null,
     suggestion,
     skills: { personal: skillsIn(home), project: skillsIn(root) },
