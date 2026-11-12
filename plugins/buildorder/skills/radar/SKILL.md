@@ -26,12 +26,15 @@ sources read, weigh them against this workspace, report briefly. The user decide
 5. **Report** in at most 3 proposals as a table: `What is new | Use here | Effort (small/medium/large) | Link`.
    If nothing fits, say that in one sentence; that is a result too.
 6. **Finding about Buildorder itself** (the plugin: hooks, skills, CLI, templates): do not create anything. Print a
-   ready issue for the user to review: a title, a body (what changed upstream, what it means for Buildorder, link),
-   and the command below with those texts filled in. Never run it yourself.
+   ready issue for the user to review: a title and a body (what changed upstream, what it means for Buildorder,
+   link), each as its own plain fenced block, and then this command, which opens the issue form in the browser:
 
    ```
-   gh issue create --repo PhilippKlinger/buildorder --title "<title>" --body "<body>"
+   gh issue create --repo PhilippKlinger/buildorder --web
    ```
+
+   The user pastes title and body into the form. Never put those texts into a command line (backticks and `$(...)`
+   in web-derived text would run), and never run the command yourself.
 
 7. **Close:** after the user confirms they have seen the report, run
    `node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" radar-done . <today as YYYY-MM-DD>`. This writes to

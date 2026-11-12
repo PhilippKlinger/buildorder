@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { readJson, writeJson } from './fsx.mjs';
 import { isWorkspace } from './workspace.mjs';
 
-/** Official public Claude Code pages. A fixed list: the reader agent fetches nothing else. */
+/** Official public Claude Code pages. A fixed list; the reader agent fetches only these plus follow-ups under the official URL prefixes named in its definition. */
 export const SOURCES = [
   'https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md',
   'https://github.com/anthropics/claude-code/releases',
