@@ -5,6 +5,7 @@ deploy:
   needs: [image]
   permissions:
     contents: read
+  # `$/` is GitHub's reference to this repository itself (runner >= 2.336.0), not a typo; `./` is the older spelling.
   uses: $/.github/workflows/deployment.yml
   with:
     source_sha: ${{ github.sha }}
