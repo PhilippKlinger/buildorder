@@ -191,3 +191,16 @@ test('plan prints the read-only plan of standard and refuses --apply', () => {
   assert.match(refused.stderr, /^buildorder: .*--apply/);
   assert.deepEqual(snapshot(dir), before, 'plan writes nothing, also when --apply is passed');
 });
+
+test('plan --gaps prints the same gap list as standard --gaps; plan refuses --starter', () => {
+  const dir = localGit(codeRepo('standard plan gaps', { 'README.md': '# x\n' }));
+  const before = snapshot(dir);
+  const r = cli('plan', dir, '--deploy', 'none', '--gaps');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(gapRows(r.stdout).length > 0);
+  assert.equal(r.stdout, cli('standard', dir, '--deploy', 'none', '--gaps').stdout);
+  const starter = cli('plan', dir, '--starter');
+  assert.equal(starter.status, 1);
+  assert.match(starter.stderr, /^buildorder: .*--starter/);
+  assert.deepEqual(snapshot(dir), before);
+});

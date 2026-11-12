@@ -12,7 +12,7 @@
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--starter] [--apply]
 //                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
-//   node buildorder.mjs plan [repo] [same options as standard, without --starter and --apply]   (read-only)
+//   node buildorder.mjs plan [repo] [same options as standard, without --starter and --apply; --gaps too]   (read-only)
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
 // problems (verify, finalize) prints its JSON report and exits with 1 as well.
@@ -72,7 +72,9 @@ const COMMANDS = {
       deploy: { type: 'string' },
       visibility: { type: 'string' },
       without: { type: 'string', multiple: true },
+      gaps: { type: 'boolean' },
     },
+    text: gapText,
     run: (dir, _args, opts) => standard(dir, opts),
   },
 };
