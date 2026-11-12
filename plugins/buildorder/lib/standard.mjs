@@ -349,7 +349,8 @@ function uncoveredStacks(root, sel) {
 
 function notesOf(root, sel, { image, cd }) {
   const notes = [];
-  for (const id of uncoveredStacks(root, sel)) {
+  // Without a stack module there is no "covered" stack to compare with; the gap note below says it.
+  for (const id of sel.stack ? uncoveredStacks(root, sel) : []) {
     notes.push(`'${id}' is also detected but not covered: the stack module '${sel.stackId}' sets up lint, tests with `
       + `coverage, build and dependency audit for '${sel.stackId}' only; add the checks for '${id}' to ci.yml by hand`);
   }
