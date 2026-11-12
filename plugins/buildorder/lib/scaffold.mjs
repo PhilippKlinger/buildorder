@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { PLUGIN_ROOT, detect, safeName, validName } from './detect.mjs';
 import { normalizePath, relativeTo } from './paths.mjs';
+import { VISIBILITIES } from './standard.mjs';
 import { loadWorkspace } from './workspace.mjs';
 
 /** The doc-map: `docs` key in workspace.json -> file in the workspace root. */
@@ -44,8 +45,8 @@ function refusal(d) {
 }
 
 /** The repos to record: all that detect found, or those named in `--repo` (each must be one of them). */
-function pickRepos(root, found, wanted) {
-  const entry = (r) => ({ path: r.path, isCode: r.isCode, stacks: r.stacks });
+function pickRepos(root, found, wanted, visibility) {
+  const entry = (r) => ({ path: r.path, isCode: r.isCode, stacks: r.stacks, ...(visibility ? { visibility } : {}) });
   if (!wanted?.length) return found.map(entry);
   const byKey = new Map(found.map((r) => [normalizePath(r.path), r]));
   const picked = new Map();
@@ -60,12 +61,16 @@ function pickRepos(root, found, wanted) {
 
 /**
  * Writes the workspace files into `dir` (an existing folder). Options: `lang` (en|de), `name`, `repo`
- * (repo paths to record; default: every repo detect finds). Without `lang` and `name`, a rerun keeps
+ * (repo paths to record; default: every repo detect finds), `visibility` (public|private, recorded on each
+ * repo entry; /buildorder:secure reads it). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
-export function scaffold(dir, { lang, name, repo } = {}) {
+export function scaffold(dir, { lang, name, repo, visibility } = {}) {
   if (lang !== undefined && !LANGUAGES.includes(lang)) throw new Error(`--lang must be one of ${LANGUAGES.join(', ')}`);
+  if (visibility !== undefined && !VISIBILITIES.includes(visibility)) {
+    throw new Error(`--visibility must be one of ${VISIBILITIES.join(', ')}`);
+  }
   if (name !== undefined && !validName(name)) {
     throw new Error(`invalid name '${name}': letters, digits, space and ._-, at most 63 characters`);
   }
@@ -77,7 +82,7 @@ export function scaffold(dir, { lang, name, repo } = {}) {
   const docsLang = lang ?? (LANGUAGES.includes(existing?.language?.docs) ? existing.language.docs : 'en');
   const keptName = typeof existing?.name === 'string' && validName(existing.name) ? existing.name : null;
   const wsName = name ?? keptName ?? safeName(basename(root));
-  const repos = pickRepos(root, d.repos, repo);
+  const repos = pickRepos(root, d.repos, repo, visibility);
 
   const created = [];
   const skipped = [];

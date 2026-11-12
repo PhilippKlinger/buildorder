@@ -109,6 +109,13 @@ test('repos come from detect; --repo selects among them', () => {
   assert.deepEqual(wsOf(picked).repos.map((r) => r.path), ['app']);
 });
 
+test('--visibility records the visibility on each repo entry, for /buildorder:secure', () => {
+  const dir = tmp('scaffold visibility');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  scaffold(dir, '--visibility', 'private');
+  assert.deepEqual(wsOf(dir).repos, [{ path: 'app', isCode: true, stacks: ['angular'], visibility: 'private' }]);
+});
+
 test('refuses folders that are no place for a workspace, and writes nothing', () => {
   const repo = codeRepo('scaffold repo root');
   const r = cli('scaffold', repo);
@@ -132,7 +139,7 @@ test('refuses folders that are no place for a workspace, and writes nothing', ()
 
 test('invalid options fail with one line', () => {
   const dir = tmp('scaffold options');
-  for (const args of [['--lang', 'fr'], ['--name', 'a/b'], ['--nope']]) {
+  for (const args of [['--lang', 'fr'], ['--name', 'a/b'], ['--visibility', 'internal'], ['--nope']]) {
     const r = cli('scaffold', dir, ...args);
     assert.equal(r.status, 1, args.join(' '));
     assert.match(r.stderr, /^buildorder: [^\n]+\n$/, args.join(' '));

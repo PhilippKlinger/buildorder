@@ -4,7 +4,7 @@
 //   node buildorder.mjs detect [dir]
 //   node buildorder.mjs nest [dir] [name]
 //   node buildorder.mjs status [dir] [--json]   (plain text unless --json)
-//   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]...
+//   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]... [--visibility public|private]
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
@@ -31,7 +31,12 @@ const COMMANDS = {
   status: { args: 0, options: { json: { type: 'boolean' } }, text: formatStatus, run: (dir) => status(dir) },
   scaffold: {
     args: 0,
-    options: { lang: { type: 'string' }, name: { type: 'string' }, repo: { type: 'string', multiple: true } },
+    options: {
+      lang: { type: 'string' },
+      name: { type: 'string' },
+      repo: { type: 'string', multiple: true },
+      visibility: { type: 'string' },
+    },
     run: (dir, _args, opts) => scaffold(dir, opts),
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
