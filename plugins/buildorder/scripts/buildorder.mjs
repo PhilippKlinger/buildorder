@@ -9,6 +9,7 @@
 //   node buildorder.mjs finalize [dir]
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--starter] [--apply]
+//                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
 // problems (verify, finalize) prints its JSON report and exits with 1 as well.
@@ -17,12 +18,13 @@ import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
 import { nest } from '../lib/nest.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
-import { standard } from '../lib/standard.mjs';
+import { gapList, standard } from '../lib/standard.mjs';
 import { finalize, verify } from '../lib/verify.mjs';
 import { formatStatus, status } from '../lib/status.mjs';
 
 // `args`: how many arguments a command takes after [dir]; `options`: node:util parseArgs options;
-// `check`: the result's `ok` sets the exit code; `text`: prints plain text unless --json is given.
+// `check`: the result's `ok` sets the exit code; `text(result, values)`: plain text to print instead of
+// JSON (null keeps JSON), never with --json.
 const COMMANDS = {
   detect: { args: 0, run: (dir) => detect(dir, { home: homedir() }) },
   nest: { args: 1, run: (dir, [name]) => nest(dir, name) },
@@ -43,7 +45,9 @@ const COMMANDS = {
       without: { type: 'string', multiple: true },
       starter: { type: 'boolean' },
       apply: { type: 'boolean' },
+      gaps: { type: 'boolean' },
     },
+    text: (result, values) => (values.gaps ? gapList(result) : null),
     run: (dir, _args, opts) => standard(dir, opts),
   },
 };
@@ -58,7 +62,8 @@ function main(argv) {
   const [dir = '.', ...args] = positionals;
   if (args.length > cmd.args) throw new Error(`unexpected argument '${args[cmd.args]}'`);
   const result = cmd.run(dir, args, { ...values });
-  process.stdout.write(cmd.text && !values.json ? cmd.text(result) : JSON.stringify(result, null, 2) + '\n');
+  const text = cmd.text && !values.json ? cmd.text(result, values) : null;
+  process.stdout.write(text ?? JSON.stringify(result, null, 2) + '\n');
   if (cmd.check && !result.ok) process.exitCode = 1;
 }
 

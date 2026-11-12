@@ -1,7 +1,7 @@
 // standard: the standard model (mandatory / standard / option) and the repo files that set it up.
 // Without --apply everything here only reads; --apply writes missing files and makes one commit.
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { detectDeploy } from './deploy.mjs';
 import { PLUGIN_ROOT } from './detect.mjs';
 import { SKIP_DIRS, readJson, walk, writeJson } from './fsx.mjs';
@@ -405,6 +405,7 @@ function record(root, standards) {
  * git has no identity to commit with.
  */
 export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
+  if (opts.gaps && opts.apply) throw new Error('--gaps lists the plan and cannot be combined with --apply');
   const root = repoFolder(dir, opts);
   const model = loadModel();
   const sel = selection(root, model, opts, stacksDir);
@@ -429,4 +430,48 @@ export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
   const workspace = record(root, { modules: plan.modules, deviations: sel.deviations });
   const after = report(root, model, sel);
   return { ok: true, repo: root, applied: true, ...after, files: plan.files, created, skipped, commit, workspace };
+}
+
+// --- gap list as backlog tasks -------------------------------------------------------------------
+
+const GAP_PREFIX = 'STD';
+const NO_GAPS = 'No gaps: every repo item of the standard is present or deliberately skipped.\n';
+
+/** The repo as the backlog names it: its path in the enclosing workspace, else its folder name. */
+function repoLabel(root) {
+  const wsRoot = findWorkspaceRoot(root);
+  const rel = wsRoot ? relativeTo(root, wsRoot) : null;
+  return rel || basename(root);
+}
+
+/**
+ * A plan's missing items as backlog markdown: short-list rows (`| ID | Prio | Task | Epic |`), then
+ * one detail block. Mandatory gaps are P0, standard gaps P1; skipped items are deviations, no gaps.
+ */
+export function gapList(plan) {
+  const summaries = new Map(loadModel().items.map((i) => [i.id, i.summary]));
+  const repo = repoLabel(plan.repo);
+  const gaps = plan.items.filter((i) => i.state === 'missing').map((item, n) => ({
+    id: `${GAP_PREFIX}-${String(n + 1).padStart(2, '0')}`,
+    prio: item.class === 'mandatory' ? 'P0' : 'P1',
+    task: `Add to \`${repo}\`: ${summaries.get(item.id) ?? item.id}${item.reason ? ` (${item.reason})` : ''}`,
+    item: item.id,
+  }));
+  if (!gaps.length) return NO_GAPS;
+  const rows = gaps.map((g) => `| ${g.id} | ${g.prio} | ${g.task} | ${GAP_PREFIX} |`);
+  const tasks = gaps.map((g) => [
+    `- [ ] **${g.id}** (${g.prio}) ${g.task}`,
+    `  Goal: the repo meets the standard item \`${g.item}\` · Boundaries: a branch and a pull request of its own, `
+      + `no other changes · Done: \`standard\` lists \`${g.item}\` as present`,
+  ].join('\n'));
+  return [
+    ...rows,
+    '',
+    `## ${GAP_PREFIX} — Gaps to the Buildorder standard`,
+    '',
+    `> Source: the gap list of \`buildorder.mjs standard\` for \`${repo}\`. Mandatory gaps are P0, standard gaps P1.`,
+    '',
+    ...tasks,
+    '',
+  ].join('\n');
 }
