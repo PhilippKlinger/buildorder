@@ -192,3 +192,7 @@ const normalized = (name) => read(name).replace(/\s+/g, ' ');
 test('init asks for the release style of an existing project', () => {
   assert.match(normalized('init'), /\*\*Existing project:\*\*[^*]*release style \([^)]*never assume/);
 });
+
+test('init phrases data and third-party statements as hints before assess', () => {
+  assert.match(normalized('init'), /Before `assess` ran, .*as hints \("traces of/);
+});

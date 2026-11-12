@@ -65,6 +65,8 @@ deploy target (recommend `repos[].deploy` and name its evidence); release style 
 with SemVer; recommend from the existing tags and workflows, but ask, never assume). A second block: personal data or login, plus
 deviations only where the finding argues against a standard (a library without runtime: no container image).
 If the start text or notes contradict the finding, ask and name the evidence; never decide silently.
+Before `assess` ran, statements about data, payments or third-party services come from grep hits and file names
+only: phrase them as hints ("traces of …", "looks like …"), never as facts. `assess` confirms or corrects them.
 
 ## 2. Confirmation
 
