@@ -201,6 +201,71 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
+  # AK-2 for python: `standard --starter` writes the library starter and its pipeline into an empty repo, then the
+  # core steps of that pipeline run on it. A second repo with an entry point is a service: it gets the Dockerfile,
+  # which is built and scanned. The commands and Python version are those of the module's ci.yml
+  # (tests/lib/stack-python.test.mjs).
+  python-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14.10"
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/python app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack python --deploy none --starter --apply
+          git -C "$dir" log --oneline --stat
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/python app
+        run: python -m pip install --requirement requirements-dev.txt --editable .
+      - name: Lint
+        working-directory: ${{ runner.temp }}/python app
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Test with coverage
+        working-directory: ${{ runner.temp }}/python app
+        run: pytest --cov --cov-report=term-missing
+      - name: Build the wheel and the sdist
+        working-directory: ${{ runner.temp }}/python app
+        run: python -m build
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/python app
+        run: |
+          pip-audit --requirement requirements-dev.txt
+          pip-audit .
+      - name: Turn the starter into a service (adds an entry point) and plan the image
+        run: |
+          set -Eeuo pipefail
+          svc="$RUNNER_TEMP/python service"
+          cp -r "$RUNNER_TEMP/python app" "$svc"
+          printf '\n[project.scripts]\nexample-package = "example_package:greet"\n' >> "$svc/pyproject.toml"
+          node plugins/buildorder/scripts/buildorder.mjs standard "$svc" --stack python --deploy container --apply
+          test -f "$svc/Dockerfile"
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/python service
+        run: docker build --tag python-fixture .
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: python-fixture
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
   gitleaks:
     runs-on: ubuntu-latest
     permissions:
@@ -239,7 +304,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [test, validate, pre-commit, zizmor, django-fixture, gitleaks, codeql]
+    needs: [test, validate, pre-commit, zizmor, django-fixture, python-fixture, gitleaks, codeql]
     runs-on: ubuntu-latest
     permissions: {}
     steps:

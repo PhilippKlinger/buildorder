@@ -1,0 +1,10 @@
+{
+  "codeql": { "language": "python", "buildMode": "none" },
+  "dependabot": [{ "ecosystem": "pip", "directory": "/" }],
+  "provides": {
+    "lint": "\\bruff check\\b|\\bflake8\\b",
+    "tests-coverage": "--cov\\b|\\bcoverage run\\b",
+    "build": "python -m build\\b",
+    "dependency-audit": "\\bpip-audit\\b"
+  }
+}

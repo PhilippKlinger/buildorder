@@ -173,7 +173,7 @@ test('the CI sample helper writes every sample (fake CD variants, django) for th
   const out = tempDir('standard sample');
   execFileSync(process.execPath, [join(repoRoot, 'tests', 'helpers', 'standard-sample.mjs'), out], { stdio: 'pipe' });
   const list = samples();
-  assert.deepEqual(list.map((s) => s.name), ['container', 'webspace', 'none', 'django-container', 'django-none']);
+  assert.deepEqual(list.map((s) => s.name), ['container', 'webspace', 'none', 'django-container', 'django-none', 'python-container', 'python-none']);
   for (const { name, stack, deploy } of list) {
     for (const { path, content } of render({ stack, deploy, skip: new Set() })) {
       assert.equal(readFileSync(join(out, name, ...path.split('/')), 'utf8'), content, `${name}: ${path}`);
