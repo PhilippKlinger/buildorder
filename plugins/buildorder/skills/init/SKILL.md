@@ -54,7 +54,9 @@ covers: standards appear in step 2 and can be changed there.
    - Deploy target: `container` (the starter ships a Dockerfile), `paas`, `webspace` (static sites only), `none`.
    - Release style: every merge to `main`, or tags with SemVer.
 3. One block: personal data or login (it sets the checks of `/buildorder:secure`), plus a deviation only where
-   the finding argues against a standard.
+   the finding argues against a standard. With `django`, say that the tested starter contains neither `auth` nor
+   `admin`: unless the idea answer says otherwise, recommend "no personal data, no login"; a login or admin is
+   work for the first backlog tasks, not something the starter provides.
 
 **Existing project:** one block: confirm the repo and its `stacks`; goal (revive, modernise, extend); visibility;
 deploy target (recommend `repos[].deploy` and name its evidence). A second block: personal data or login, plus
