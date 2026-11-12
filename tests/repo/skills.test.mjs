@@ -59,6 +59,11 @@ test('workflow skills stay automatically invocable', () => {
   }
 });
 
+test('assess reads untrusted repo code, so writing the audit file asks the user', () => {
+  const tools = frontmatter(read('assess'))['allowed-tools'] ?? '';
+  assert.doesNotMatch(tools, /(^|[\s,])(Write|Edit)([\s,(]|$)/);
+});
+
 test('the CLI is called via the plugin root and every workflow skill injects status', () => {
   for (const name of skills()) {
     const text = read(name);

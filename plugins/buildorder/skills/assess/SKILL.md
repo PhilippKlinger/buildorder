@@ -3,7 +3,7 @@ name: assess
 description: Static assessment of one repo in a Buildorder workspace. Covers stack, git state, dependencies, Docker and CI, tests, secrets and hosting dependencies, and writes an audit file with findings ranked P0 to P3. Pass a repo path from workspace.json.
 argument-hint: "<repo path>"
 context: fork
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Read, Grep, Glob, Write
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Read, Grep, Glob
 ---
 
 # Assess

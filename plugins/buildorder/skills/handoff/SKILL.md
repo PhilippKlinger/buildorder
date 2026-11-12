@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Session end in a Buildorder workspace. Checks the git state of all repos, updates sprint, backlog, archive, decisions and assumptions, and writes the handoff file. Use at the end of a session or when the user wraps up.
+description: Session end in a Buildorder workspace (a folder with .claude/workspace.json). Checks the git state of all repos, updates the workspace docs and writes the handoff file. Use only at the end of a session inside a Buildorder workspace.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), Read, Edit, Write
 ---
 
@@ -19,7 +19,8 @@ Start no new features or fixes.
    needs a Buildorder workspace (set one up with `/buildorder:init`). Do nothing else.
 2. Read `.claude/workspace.json` in the workspace root named above. Take every file name from `docs` and write
    in the language `language.docs`.
-3. **Git:** for each repo with uncommitted changes, ask whether to commit, commit as work in progress, or leave it.
+3. **Git:** for each code repo with uncommitted changes, ask whether to commit, commit as work in progress, or leave it.
+   The docs root comes later (step 6), after the docs are written.
    Never decide this yourself. Never push and never open a pull request.
 4. **Docs:** update each file in place with targeted edits. Never rewrite a whole file. Check against the source
    (code, tests, files) before marking anything done, not only against the conversation.

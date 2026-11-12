@@ -1,6 +1,6 @@
 ---
 name: kickoff
-description: Session start in a Buildorder workspace. Shows warnings, the last handoff and the live state of all repos, then proposes tasks from the sprint or backlog. Use at the start of a session or when asked what is next.
+description: Session start in a Buildorder workspace (a folder with .claude/workspace.json). Shows warnings, the last handoff and the repo state, then proposes tasks. Use only at the start of a session inside a Buildorder workspace.
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), Read, Edit
 ---
 
