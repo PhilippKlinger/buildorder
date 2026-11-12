@@ -1,4 +1,5 @@
 // The plugin's skills: valid frontmatter, auto-invocable, CLI called via the plugin root, English, no personal names.
+// init runs only when the user invokes it, with exact CLI and git patterns instead of blanket tools.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -11,6 +12,10 @@ const WORKFLOW = ['assess', 'handoff', 'kickoff'];
 const MODULE = ['review', 'secure'];
 const CLI = '"${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs"';
 const STATUS_INJECTION = '!`node ' + CLI + ' status`';
+const DETECT_INJECTION = '!`node ' + CLI + ' detect .`';
+// CLI commands init may pre-approve: read-only ones. Writes (standard --apply, nest, scaffold, finalize,
+// github-checklist) stay behind a permission prompt.
+const INIT_COMMANDS = ['detect', 'status', 'verify', 'plan'];
 
 const UMLAUT = new RegExp(`[${String.fromCharCode(0xe4, 0xf6, 0xfc, 0xc4, 0xd6, 0xdc, 0xdf)}]`); // built from codes: this file stays ASCII
 // Common German function words that have no English homograph.
@@ -57,6 +62,53 @@ test('frontmatter values are valid YAML plain scalars or quoted', () => {
 test('workflow and module skills stay automatically invocable', () => {
   for (const name of [...WORKFLOW, ...MODULE]) {
     assert.doesNotMatch(read(name), /^disable-model-invocation:/m, name);
+  }
+});
+
+test('init ships, runs only when the user invokes it, and injects the folder finding', () => {
+  assert.ok(skills().includes('init'), 'skills/init/SKILL.md missing');
+  const text = read('init');
+  assert.equal(frontmatter(text)['disable-model-invocation'], 'true');
+  assert.ok(text.includes(DETECT_INJECTION), 'detect injection missing');
+});
+
+// Splits `A(x, y), B` at the commas outside parentheses.
+const toolRules = (name) => (frontmatter(read(name))['allowed-tools'] ?? '')
+  .split(/,\s*(?![^()]*\))/).map((r) => r.trim()).filter(Boolean);
+
+// No git rule: `git init *` would also allow --template (hooks) and --separate-git-dir; scaffold --new-repo inits.
+test('init pre-approves only exact read-only CLI commands: no git, no write command, no blanket tool', () => {
+  const rules = toolRules('init');
+  assert.ok(rules.length > 0);
+  for (const rule of rules) {
+    const m = rule.match(/^(Bash|PowerShell)\((.*)\)$/);
+    if (!m) {
+      assert.ok(['Read', 'Grep', 'Glob', 'AskUserQuestion'].includes(rule), `unexpected tool rule: ${rule}`);
+      continue;
+    }
+    const cmd = m[2];
+    const sub = cmd.startsWith(`node ${CLI} `) ? cmd.slice(`node ${CLI} `.length) : null;
+    const name = sub?.match(/^([a-z-]+) \*$/)?.[1];
+    assert.ok(INIT_COMMANDS.includes(name), `${rule}: only exact read-only CLI commands`);
+  }
+});
+
+test('init plans and lists gaps with the pre-approved read-only plan command', () => {
+  const text = read('init');
+  assert.ok(toolRules('init').includes(`Bash(node ${CLI} plan *)`), 'plan * is pre-approved');
+  assert.ok(text.includes('`plan "<repo>" [--stack <id>]'), 'the confirmation runs plan');
+  assert.ok(text.includes('`plan "<repo>" <options of the plan> --gaps`'), 'the gap list comes from plan');
+  assert.doesNotMatch(text, /`standard "<repo>"[^`]*--gaps/, 'no gap list through standard');
+});
+
+test('every live command of a skill is allowed by its own allowed-tools (else the skill aborts)', () => {
+  const glob = (pattern) => new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  for (const name of skills()) {
+    const text = read(name);
+    const allowed = toolRules(name).map((r) => r.match(/^Bash\((.*)\)$/)?.[1]).filter(Boolean).map(glob);
+    for (const [, cmd] of text.matchAll(/^!`([^`]+)`/gm)) {
+      assert.ok(allowed.some((re) => re.test(cmd)), `${name}: live command not allowed: ${cmd}`);
+    }
   }
 });
 

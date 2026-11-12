@@ -1,9 +1,11 @@
 // scaffold: writes a workspace into a folder: the doc-map, CLAUDE.md and .claude/workspace.json.
 // It never overwrites: an existing file is reported as skipped, so a second run changes nothing.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { PLUGIN_ROOT, detect, safeName, validName } from './detect.mjs';
+import { gitResult } from './git.mjs';
 import { normalizePath, relativeTo } from './paths.mjs';
+import { VISIBILITIES } from './standard.mjs';
 import { loadWorkspace } from './workspace.mjs';
 
 /** The doc-map: `docs` key in workspace.json -> file in the workspace root. */
@@ -44,8 +46,8 @@ function refusal(d) {
 }
 
 /** The repos to record: all that detect found, or those named in `--repo` (each must be one of them). */
-function pickRepos(root, found, wanted) {
-  const entry = (r) => ({ path: r.path, isCode: r.isCode, stacks: r.stacks });
+function pickRepos(root, found, wanted, visibility) {
+  const entry = (r) => ({ path: r.path, isCode: r.isCode, stacks: r.stacks, ...(visibility ? { visibility } : {}) });
   if (!wanted?.length) return found.map(entry);
   const byKey = new Map(found.map((r) => [normalizePath(r.path), r]));
   const picked = new Map();
@@ -59,25 +61,50 @@ function pickRepos(root, found, wanted) {
 }
 
 /**
+ * The new project's code repo `<root>/<name>`: `git init` on main with fixed arguments (no template, no
+ * separate git dir), so skills need no `git init` permission. An existing git repo there is kept as it is.
+ */
+function initRepo(root, name) {
+  const abs = join(root, name);
+  if (existsSync(join(abs, '.git'))) return;
+  if (existsSync(abs) && readdirSync(abs).length) throw new Error(`--new-repo '${name}' exists and is not a git repo`);
+  const r = gitResult(root, ['init', '-q', '-b', 'main', '--', name]);
+  if (!r.ok) throw new Error(`git init failed: ${r.stderr.split('\n')[0] || 'unknown error'}`);
+}
+
+/**
  * Writes the workspace files into `dir` (an existing folder). Options: `lang` (en|de), `name`, `repo`
- * (repo paths to record; default: every repo detect finds). Without `lang` and `name`, a rerun keeps
+ * (repo paths to record; default: every repo detect finds), `visibility` (public|private, recorded on each
+ * repo entry; /buildorder:secure reads it), `newRepo` (a folder name: create the new project's code repo
+ * there with `git init` on main and record it). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
-export function scaffold(dir, { lang, name, repo } = {}) {
+export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {
   if (lang !== undefined && !LANGUAGES.includes(lang)) throw new Error(`--lang must be one of ${LANGUAGES.join(', ')}`);
+  if (newRepo !== undefined && !validName(newRepo)) {
+    throw new Error(`invalid --new-repo '${newRepo}': one folder name of letters, digits, space and ._-`);
+  }
+  if (visibility !== undefined && !VISIBILITIES.includes(visibility)) {
+    throw new Error(`--visibility must be one of ${VISIBILITIES.join(', ')}`);
+  }
   if (name !== undefined && !validName(name)) {
     throw new Error(`invalid name '${name}': letters, digits, space and ._-, at most 63 characters`);
   }
-  const d = detect(dir);
+  let d = detect(dir);
   const root = d.dir;
   const why = refusal(d);
   if (why) throw new Error(why);
+  if (newRepo !== undefined) {
+    initRepo(root, newRepo);
+    d = detect(root);
+  }
   const existing = d.workspace ? loadWorkspace(root) : null;
   const docsLang = lang ?? (LANGUAGES.includes(existing?.language?.docs) ? existing.language.docs : 'en');
   const keptName = typeof existing?.name === 'string' && validName(existing.name) ? existing.name : null;
   const wsName = name ?? keptName ?? safeName(basename(root));
-  const repos = pickRepos(root, d.repos, repo);
+  const wanted = newRepo === undefined ? repo : [...(repo ?? []), newRepo];
+  const repos = pickRepos(root, d.repos, wanted, visibility);
 
   const created = [];
   const skipped = [];
