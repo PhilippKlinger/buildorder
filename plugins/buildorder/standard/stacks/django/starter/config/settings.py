@@ -1,8 +1,14 @@
 """Django settings: everything that differs between environments comes from environment variables.
 
-Required: DJANGO_SECRET_KEY. Optional: DJANGO_DEBUG, DJANGO_ALLOWED_HOSTS (comma-separated),
-DATABASE_URL (postgres://user:password@host:5432/name, or sqlite:///db.sqlite3 for local work),
-DJANGO_SECURE_SSL_REDIRECT, DJANGO_SECURE_HSTS_SECONDS.
+Required: DJANGO_SECRET_KEY.
+Optional:
+- DJANGO_DEBUG (default off).
+- DJANGO_ALLOWED_HOSTS: comma-separated, default "localhost,127.0.0.1". Add the public host name
+  and every host a health probe of the platform calls (for example the pod or container name).
+- DJANGO_BEHIND_PROXY: set to true when a reverse proxy terminates TLS and sets
+  X-Forwarded-Proto; only then is that header trusted (default off).
+- DATABASE_URL: postgres://user:password@host:5432/name, or sqlite:///db.sqlite3 for local work.
+- DJANGO_SECURE_SSL_REDIRECT, DJANGO_SECURE_HSTS_SECONDS.
 """
 
 import os
@@ -19,8 +25,8 @@ def env_bool(name, default):
     return default if value is None else value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def env_list(name):
-    return [item.strip() for item in os.environ.get(name, "").split(",") if item.strip()]
+def env_list(name, default):
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
 
 
 def database(url):
@@ -47,7 +53,7 @@ def database(url):
 
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = env_bool("DJANGO_DEBUG", False)
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS")
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 
 INSTALLED_APPS = [
     "django.contrib.staticfiles",
@@ -75,8 +81,9 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# HTTPS behind a reverse proxy that terminates TLS and sets X-Forwarded-Proto.
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Trust X-Forwarded-Proto only behind a proxy that sets it; otherwise a client could spoof it.
+if env_bool("DJANGO_BEHIND_PROXY", False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)
 # The health check of the container platform calls plain HTTP.
 SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]
