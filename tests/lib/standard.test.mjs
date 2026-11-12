@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadModel, standard } from '../../plugins/buildorder/lib/standard.mjs';
-import { cleanup, codeRepo, gitIn, tempDir, write } from '../helpers/cli.mjs';
+import { cleanup, codeRepo, gitIn, gitInit, tempDir, tmp, write } from '../helpers/cli.mjs';
 import { FAKE_STACKS, jobIds } from '../helpers/standard.mjs';
 
 after(cleanup);
@@ -181,6 +181,44 @@ test('a stack module without a Dockerfile gets no image job, and the image is sk
   assert.deepEqual(out.created, ['.github/workflows/ci.yml', '.github/dependabot.yml', '.pre-commit-config.yaml']);
   const jobs = jobIds(read(dir, '.github/workflows/ci.yml'));
   assert.ok(!jobs.includes('image') && !jobs.includes('deploy'), jobs.join(' '));
+});
+
+const STARTER = ['README.md', 'src/main.fake'];
+
+test('--starter in an empty repo: the plan lists the starter files, --apply writes them with the pipeline in one commit', () => {
+  const dir = localGit(gitInit(tmp('standard starter')));
+  const plan = run(dir, { starter: true });
+  assert.deepEqual(plan.files.map((f) => f.path), [...STARTER, ...ALL_FILES]);
+  assert.ok(plan.files.every((f) => f.state === 'create'));
+  assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '', 'the plan writes nothing');
+
+  const out = run(dir, { starter: true, apply: true });
+  assert.deepEqual(out.created, [...STARTER, ...ALL_FILES]);
+  assert.equal(read(dir, 'src/main.fake'), read(join(FAKE_STACKS, 'fake', 'starter'), 'src/main.fake'));
+  assert.equal(gitIn(dir, 'rev-list', '--count', 'HEAD'), '1');
+  assert.deepEqual(gitIn(dir, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort(), [...out.created].sort());
+  assert.match(gitIn(dir, 'log', '-1', '--format=%s'), /^feat: add the fake starter and the CI\/CD files/);
+  assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '');
+});
+
+test('--starter never overwrites a file the repo already has', () => {
+  const dir = repo('standard starter keep', { 'README.md': '# mine\n' });
+  const out = run(dir, { starter: true, apply: true, deploy: 'none' });
+  assert.ok(out.skipped.includes('README.md'));
+  assert.ok(out.created.includes('src/main.fake'));
+  assert.equal(read(dir, 'README.md'), '# mine\n');
+});
+
+test('--starter without a stack module that has a starter fails before writing anything', () => {
+  const stacksDir = tempDir('standard no starter');
+  cpSync(join(FAKE_STACKS, 'fake'), join(stacksDir, 'fake'), { recursive: true });
+  rmSync(join(stacksDir, 'fake', 'starter'), { recursive: true });
+  const dir = localGit(gitInit(tmp('standard starter missing')));
+  assert.throws(() => standard(dir, { stack: 'fake', starter: true, apply: true }, { stacksDir }),
+    /^Error: --starter needs a stack module with a starter; 'fake' has none$/);
+  assert.throws(() => standard(dir, { starter: true, apply: true }, { stacksDir }),
+    /^Error: --starter needs a stack module with a starter; no stack detected \(choose one with --stack\)$/);
+  assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '');
 });
 
 test('CD variants: webspace writes its workflow, paas is a hint, none writes nothing', () => {

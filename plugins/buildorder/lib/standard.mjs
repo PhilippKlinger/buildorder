@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { dirname, join, resolve } from 'node:path';
 import { detectDeploy } from './deploy.mjs';
 import { PLUGIN_ROOT } from './detect.mjs';
-import { readJson, walk, writeJson } from './fsx.mjs';
+import { SKIP_DIRS, readJson, walk, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
 import { relativeTo } from './paths.mjs';
 import { detectStacks } from './stack.mjs';
@@ -21,6 +21,7 @@ export const DEPLOY_TARGETS = ['container', 'webspace', 'paas', 'none'];
 export const VISIBILITIES = ['public', 'private'];
 const PRIVATE_REASON = 'private repo: needs a paid GitHub product (GitHub Code Security); free replacement after 1.0';
 const COMMIT_MESSAGE = 'ci: add CI/CD files of the buildorder standard';
+const starterMessage = (id) => `feat: add the ${id} starter and the CI/CD files of the buildorder standard`;
 
 // CD variants of docker-cicd that write files: the deploy job for ci.yml and the workflow it calls.
 const CD = {
@@ -76,7 +77,8 @@ const indent = (text, n) => text.split('\n').map((l) => (l ? ' '.repeat(n) + l :
 
 /**
  * The stack module `id` from `stacksDir`, or null when there is none:
- * `{ id, codeql, dependabot, provides, ci, jobs, preCommit, docker: [{ path, content }] }`.
+ * `{ id, codeql, dependabot, provides, ci, jobs, preCommit, docker, starter }`; `docker` and `starter`
+ * are `[{ path, content }]` (the starter is empty when the module has none).
  */
 export function loadStack(id, stacksDir = STACKS_DIR) {
   if (typeof id !== 'string' || !STACK_ID.test(id)) return null;
@@ -86,8 +88,8 @@ export function loadStack(id, stacksDir = STACKS_DIR) {
   if (!meta || ci === null) return null;
   const jobs = topKeys(ci);
   if (!jobs.length) throw new Error(`stack module '${id}': ci.yml defines no job`);
-  const dockerDir = join(dir, 'docker');
-  const docker = walk(dockerDir).sort().map((path) => ({ path, content: readText(join(dockerDir, ...path.split('/'))) }));
+  const files = (sub) => walk(sub, Infinity, SKIP_DIRS).sort()
+    .map((path) => ({ path, content: readText(join(sub, ...path.split('/'))) }));
   return {
     id,
     codeql: meta.codeql ?? null,
@@ -96,7 +98,8 @@ export function loadStack(id, stacksDir = STACKS_DIR) {
     ci,
     jobs,
     preCommit: readText(join(dir, 'pre-commit.yml')) ?? '',
-    docker,
+    docker: files(join(dir, 'docker')),
+    starter: files(join(dir, 'starter')),
   };
 }
 
@@ -202,7 +205,7 @@ function defaultDeploy(root) {
  * reason. `deviations` are the skips a person decided (deselection, private repo); a deploy that
  * falls away with the image or by its target is a consequence, not a deviation.
  */
-function selection(root, model, { stack, deploy, visibility = 'public', without }, stacksDir) {
+function selection(root, model, { stack, deploy, visibility = 'public', without, starter }, stacksDir) {
   if (deploy !== undefined && !DEPLOY_TARGETS.includes(deploy)) {
     throw new Error(`--deploy must be one of ${DEPLOY_TARGETS.join(', ')}`);
   }
@@ -214,6 +217,10 @@ function selection(root, model, { stack, deploy, visibility = 'public', without 
   const stackId = stack ?? defaultStack(root);
   const module = stackId ? loadStack(stackId, stacksDir) : null;
   const target = deploy ?? defaultDeploy(root);
+  if (starter && !module?.starter.length) {
+    throw new Error('--starter needs a stack module with a starter; '
+      + (stackId ? `'${stackId}' has none` : 'no stack detected (choose one with --stack)'));
+  }
 
   const skips = new Map();
   const deviations = [];
@@ -235,6 +242,7 @@ function selection(root, model, { stack, deploy, visibility = 'public', without 
   return {
     stackId,
     stack: module,
+    starter: Boolean(starter),
     deploy: target,
     visibility,
     skips,
@@ -329,6 +337,9 @@ function notesOf(sel, { image, cd }) {
   return notes;
 }
 
+/** What --apply writes: the starter files (with --starter), then the standard's repo files. */
+const filesOf = (sel) => [...(sel.starter ? sel.stack.starter : []), ...render(sel)];
+
 function report(root, model, sel) {
   const { image, cd } = parts(sel);
   return {
@@ -337,7 +348,7 @@ function report(root, model, sel) {
     visibility: sel.visibility,
     modules: [...(sel.stack ? [sel.stack.id] : []), ...(image ? ['docker-cicd'] : [])],
     items: itemsOf(root, model, sel),
-    files: render(sel).map(({ path }) => ({ path, state: existsSync(join(root, ...path.split('/'))) ? 'exists' : 'create' })),
+    files: filesOf(sel).map(({ path }) => ({ path, state: existsSync(join(root, ...path.split('/'))) ? 'exists' : 'create' })),
     deviations: sel.deviations,
     notes: notesOf(sel, { image, cd }),
   };
@@ -346,10 +357,10 @@ function report(root, model, sel) {
 const firstLine = (text) => text.split('\n').find((l) => l.trim()) ?? 'unknown error';
 
 /** Stages and commits exactly `files` (other staged changes stay staged); returns the new HEAD. */
-function commitFiles(root, files) {
+function commitFiles(root, files, message) {
   const add = gitResult(root, ['add', '--', ...files]);
   if (!add.ok) throw new Error(`git add failed: ${firstLine(add.stderr)}`);
-  const commit = gitResult(root, ['commit', '-q', '-m', COMMIT_MESSAGE, '--', ...files]);
+  const commit = gitResult(root, ['commit', '-q', '-m', message, '--', ...files]);
   if (!commit.ok) throw new Error(`git commit failed: ${firstLine(commit.stderr)}`);
   return gitResult(root, ['rev-parse', 'HEAD']).stdout;
 }
@@ -371,7 +382,9 @@ function record(root, standards) {
 /**
  * The standard for the code repo `dir`. Options: `stack` (default: detected), `deploy`
  * (container | webspace | paas | none; default: detected, else none), `visibility` (public | private;
- * default public), `without` (['<id>=<reason>']), `apply`. `stacksDir` replaces the stack modules folder.
+ * default public), `without` (['<id>=<reason>']), `starter` (also write the stack module's starter
+ * project, for an empty repo; an error without a module that has one), `apply`. `stacksDir` replaces
+ * the stack modules folder.
  *
  * Without `apply` it only reads and returns the plan: items with class and state (present | missing |
  * skipped), the files to write (create | exists), deviations and notes. For an existing project
@@ -389,7 +402,7 @@ export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
 
   const created = [];
   const skipped = [];
-  for (const { path, content } of render(sel)) {
+  for (const { path, content } of filesOf(sel)) {
     const abs = join(root, ...path.split('/'));
     if (existsSync(abs)) {
       skipped.push(path);
@@ -399,7 +412,8 @@ export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
     writeFileSync(abs, content, { flag: 'wx' });
     created.push(path);
   }
-  const commit = created.length ? commitFiles(root, created) : null;
+  const message = sel.starter ? starterMessage(sel.stack.id) : COMMIT_MESSAGE;
+  const commit = created.length ? commitFiles(root, created, message) : null;
   const workspace = record(root, { modules: plan.modules, deviations: sel.deviations });
   const after = report(root, model, sel);
   return { ok: true, repo: root, applied: true, ...after, files: plan.files, created, skipped, commit, workspace };

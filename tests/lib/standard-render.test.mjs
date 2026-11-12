@@ -23,6 +23,7 @@ test('loadStack reads a stack module and returns null without one', () => {
   assert.deepEqual(stack.codeql, { language: 'python', buildMode: 'none' });
   assert.deepEqual(stack.jobs, ['lint', 'test']);
   assert.deepEqual(stack.docker.map((f) => f.path), ['Dockerfile']);
+  assert.deepEqual(stack.starter.map((f) => f.path), ['README.md', 'src/main.fake']);
   assert.equal(loadStack('vue', FAKE_STACKS), null);
   assert.equal(loadStack('fake', join(FAKE_STACKS, 'missing')), null);
 });
