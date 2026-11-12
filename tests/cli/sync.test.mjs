@@ -3,7 +3,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { walk } from '../../plugins/buildorder/lib/fsx.mjs';
 import { cleanup, cli, codeRepo, gitIn, tmp, write } from '../helpers/cli.mjs';
@@ -146,6 +146,39 @@ test('sync touches no file inside a code repo', () => {
   assert.equal(gitIn(app, 'status', '--porcelain'), '');
   assert.equal(gitIn(lib, 'status', '--porcelain'), '');
   assert.equal(read(dir, '.claude/settings.local.json'), '{ "permissions": {} }\n');
+});
+
+test('sync leaves .claude and .git locations alone whatever their letter case', () => {
+  const dir = tmp('sync case');
+  scaffold(dir, '--name', 'demo');
+  const ws = wsOf(dir);
+  ws.docs.handoff = '.CLAUDE/HANDOFF.md';
+  ws.docs.backlog = 'docs/.Git/BACKLOG.md';
+  setWs(dir, ws);
+  const out = sync(dir, '--apply');
+  assert.ok(out.changes.every((c) => !/\.(claude|git)\//i.test(c.path)), JSON.stringify(out.changes));
+  assert.ok(out.notes.some((n) => n.includes('.CLAUDE/HANDOFF.md')), JSON.stringify(out.notes));
+  assert.ok(out.notes.some((n) => n.includes('docs/.Git/BACKLOG.md')), JSON.stringify(out.notes));
+});
+
+test('sync refuses a doc-map target that leaves the workspace through a symlink', (t) => {
+  const dir = tmp('sync link');
+  const outside = tmp('sync link outside');
+  scaffold(dir, '--name', 'demo');
+  try {
+    // A junction needs no privilege on Windows; on other systems this is a plain symlink.
+    symlinkSync(outside, join(dir, 'escape'), 'junction');
+  } catch (err) {
+    t.skip(`cannot create a link here: ${err.code}`);
+    return;
+  }
+  const ws = wsOf(dir);
+  ws.docs.handoff = 'escape/HANDOFF.md';
+  setWs(dir, ws);
+  const out = sync(dir, '--apply');
+  assert.ok(out.changes.every((c) => c.path !== 'escape/HANDOFF.md'), JSON.stringify(out.changes));
+  assert.ok(out.notes.some((n) => n.includes('escape/HANDOFF.md')), JSON.stringify(out.notes));
+  assert.deepEqual(readdirSync(outside), [], 'nothing written outside the workspace');
 });
 
 test('sync in a folder without workspace.json refuses with a friendly message', () => {

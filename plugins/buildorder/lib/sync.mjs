@@ -3,7 +3,7 @@
 // doc-map). A file is replaced only while it is exactly what buildorder wrote (its hash in
 // `templateHashes` of workspace.json); anything else is reported as skip-modified and never overwritten.
 // It writes nothing inside a code repo and never Claude Code's settings.local.json.
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { BUILDORDER_VERSION } from './detect.mjs';
 import { readJson, writeJson } from './fsx.mjs';
@@ -42,6 +42,17 @@ function openWorkspace(dir) {
   return { root, ws };
 }
 
+/** True when the nearest existing parent of `abs` resolves (through links) to a place outside `root`. */
+function escapesRoot(root, abs) {
+  let near = dirname(abs);
+  while (!existsSync(near) && dirname(near) !== near) near = dirname(near);
+  try {
+    return relativeTo(realpathSync(near), realpathSync(root)) === null;
+  } catch {
+    return true; // cannot resolve it: do not write there
+  }
+}
+
 /**
  * The files sync may write: CLAUDE.md and the doc-map files named in `ws.docs` (default names when unset),
  * each with its template. A path outside the root, inside a repo of the workspace, in .claude/ (workspace.json,
@@ -68,8 +79,14 @@ function targets(root, ws, notes) {
       return false;
     }
     // .claude/ holds workspace.json and Claude Code's settings (settings.local.json included), .git/ the repo itself.
-    if (parts[0] === '.claude' || parts.includes('.git')) {
+    // Compared case-insensitively on every platform: on a case-insensitive disk `.Claude` is the same folder.
+    const lower = parts.map((p) => p.toLowerCase());
+    if (lower[0] === '.claude' || lower.includes('.git')) {
       notes.push(`${path}: not a doc-map location (.claude/ or .git/); sync leaves it alone`);
+      return false;
+    }
+    if (escapesRoot(root, abs)) {
+      notes.push(`${path}: resolves outside the workspace (a link); sync leaves it alone`);
       return false;
     }
     if (seen.has(rel)) return false;
