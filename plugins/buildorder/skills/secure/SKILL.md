@@ -98,5 +98,5 @@ what leaves the system, where to, with which content, and whether it is document
 release-ready: yes / no (one sentence why)
 ```
 
-`no` as soon as anything is Critical or Important. Plain `yes` only when the built-in run *ran*; while it is
-*pending* and nothing blocks, write `release-ready: yes (pending built-in /security-review)`. Leave out empty sections.
+`no` as soon as anything is Critical or Important. `yes` only when the built-in run *ran* and nothing blocks.
+While it is *pending*, write `release-ready: no (built-in /security-review pending)`. Leave out empty sections.

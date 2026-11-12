@@ -94,5 +94,5 @@ Write in the language `language.docs`; keep the severity names and the last line
 merge-ready: yes / no (one sentence why)
 ```
 
-`no` as soon as anything is Critical or Important. Plain `yes` only when the built-in run *ran*; while it is
-*pending* and nothing blocks, write `merge-ready: yes (pending built-in /code-review)`. Leave out empty sections.
+`no` as soon as anything is Critical or Important. `yes` only when the built-in run *ran* and nothing blocks.
+While it is *pending*, write `merge-ready: no (built-in /code-review pending)`. Leave out empty sections.

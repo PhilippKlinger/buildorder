@@ -105,6 +105,14 @@ test('module skills only report: they run in a fork and pre-approve read-only to
   }
 });
 
+test('a pending built-in review never yields a ready verdict', () => {
+  for (const name of MODULE) {
+    read(name).split(/\r?\n/).forEach((line, i) => {
+      if (/pending/i.test(line)) assert.doesNotMatch(line, /\byes\b/i, `${name}:${i + 1}`);
+    });
+  }
+});
+
 test('skills are English and hold no personal names', () => {
   assert.ok(PERSONAL.length > 0, 'manifest names must be readable');
   assert.ok(GERMAN_WORDS.test('das ist gut') && !GERMAN_WORDS.test('this is the plan'), 'German word probe');
