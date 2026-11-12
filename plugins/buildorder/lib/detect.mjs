@@ -7,6 +7,7 @@ import { detectDeploy } from './deploy.mjs';
 import { SKIP_DIRS, readJson, walk } from './fsx.mjs';
 import { git, gitResult } from './git.mjs';
 import { COMPOSE, detectStacks, isDockerfile } from './stack.mjs';
+import { isWorkspace } from './workspace.mjs';
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -15,6 +16,8 @@ export const NAME_RE = /^[\w.-][\w .-]{0,62}$/;
 
 // Agent setups that already live in a folder (Claude's own and other agents').
 const AGENT_SETUP = ['.claude', 'CLAUDE.md', 'AGENTS.md', '.agents', '.cursor', '.codex'];
+// Claude Code writes this file itself when a permission prompt is answered with "don't ask again".
+const LOCAL_SETTINGS = 'settings.local.json';
 // Source files that make a git repo a code repo even without a recognised stack.
 const CODE_EXT = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.html', '.css', '.scss', '.php',
@@ -143,10 +146,12 @@ function dockerOf(dir) {
   };
 }
 
-function repoInfo(dir, path, { supported, unsupported }) {
+function repoInfo(dir, path, { stacks: { supported, unsupported }, isCodeRepo }) {
   const status = gitStatus(dir);
   return {
     path,
+    // Docs-only repos (notes, contracts) are listed but are no code repos.
+    isCode: isCodeRepo,
     stacks: supported,
     unsupported,
     deploy: detectDeploy(dir),
@@ -161,12 +166,27 @@ function repoInfo(dir, path, { supported, unsupported }) {
   };
 }
 
+/**
+ * Whether `name` in `root` is an agent setup. A `.claude` folder that is empty or holds only
+ * Claude Code's own local settings is not one: it appears during any session in the folder.
+ */
+function isSetup(root, name) {
+  const p = join(root, name);
+  if (!existsSync(p)) return false;
+  if (name !== '.claude') return true;
+  try {
+    return readdirSync(p).some((e) => e !== LOCAL_SETTINGS);
+  } catch {
+    return true; // a file named .claude, or unreadable: treat it as foreign
+  }
+}
+
 /** `.claude/workspace.json`: null when absent, the summary for buildorder's own, else 'invalid'. */
 function readWorkspace(root) {
   const file = join(root, '.claude', 'workspace.json');
   if (!existsSync(file)) return null;
   const ws = readJson(file);
-  if (!ws || typeof ws !== 'object' || Array.isArray(ws) || ws.schemaVersion !== 1) return 'invalid';
+  if (!isWorkspace(ws)) return 'invalid';
   return { schemaVersion: 1, initPhase: ws.initPhase ?? null, profile: ws.profile ?? null };
 }
 
@@ -314,7 +334,7 @@ export function detect(dir, { home = homedir() } = {}) {
   const entries = readdirSync(root).filter((e) => e !== '.git');
   const rootIsRepo = existsSync(join(root, '.git'));
   const workspace = readWorkspace(root);
-  const existingSetup = AGENT_SETUP.filter((f) => existsSync(join(root, f)));
+  const existingSetup = AGENT_SETUP.filter((f) => isSetup(root, f));
   // Every nested git repo is listed; only code repos count for the suggestion.
   const nested = findRepos(root).map((path) => {
     const abs = join(root, ...path.split('/'));
@@ -345,7 +365,7 @@ export function detect(dir, { home = homedir() } = {}) {
     blockedReason,
     workspace,
     // Also listed when blocked: the output stays true to the folder, and the cost is a few git calls per repo.
-    repos: nested.map((r) => repoInfo(r.abs, r.path, r.code.stacks)),
+    repos: nested.map((r) => repoInfo(r.abs, r.path, r.code)),
     workspaceProposal: suggestion === 'repo-root' ? proposal(root, entries) : null,
     suggestion,
     skills: { personal: skillsIn(home), project: skillsIn(root) },
