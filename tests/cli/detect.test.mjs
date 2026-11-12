@@ -174,6 +174,19 @@ test('other agent setup blocks', () => {
   assert.equal(d.workspace, null);
 });
 
+test('a .claude folder with only Claude Code local settings is no agent setup', () => {
+  const dir = tmp('local settings');
+  mkdirSync(join(dir, '.claude'));
+  assert.equal(detect(dir).suggestion, 'new', 'empty .claude');
+  write(dir, { '.claude/settings.local.json': '{}\n' });
+  const d = detect(dir);
+  assert.equal(d.suggestion, 'new');
+  assert.deepEqual(d.existingSetup, []);
+
+  write(dir, { '.claude/settings.json': '{}\n' });
+  assert.deepEqual(detect(dir).existingSetup, ['.claude'], 'shared settings are a setup');
+});
+
 test('docs-only git repo is not code', () => {
   const dir = tmp('notes');
   gitInit(dir);

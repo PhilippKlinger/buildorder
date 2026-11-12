@@ -73,6 +73,14 @@ test('existing files are kept and a second run changes nothing', () => {
   for (const f of ALL_FILES) assert.equal(read(dir, f), before[f], `${f} unchanged`);
 });
 
+test('Claude Code local settings in .claude do not block and stay as they are', () => {
+  const dir = tmp('scaffold local settings');
+  write(dir, { '.claude/settings.local.json': '{ "permissions": {} }\n' });
+  const out = scaffold(dir);
+  assert.deepEqual(sorted(out.created), sorted(ALL_FILES));
+  assert.equal(read(dir, '.claude/settings.local.json'), '{ "permissions": {} }\n');
+});
+
 test('repos come from detect; --repo selects among them', () => {
   const dir = tmp('scaffold repos');
   codeRepo(null, undefined, { dir: join(dir, 'app') });
