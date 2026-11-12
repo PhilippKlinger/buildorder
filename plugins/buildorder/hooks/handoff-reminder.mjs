@@ -17,7 +17,15 @@ export default function handoffReminder(input, { root, ws }) {
   try {
     mtime = Math.floor(statSync(join(root, handoff)).mtimeMs / 1000);
   } catch { /* no handoff yet */ }
-  const since = Math.max(mtime, seconds(root, ['log', '-1', '--format=%ct', '--', handoff]));
+  let since = Math.max(mtime, seconds(root, ['log', '-1', '--format=%ct', '--', handoff]));
+  // Init's own commits are no work to hand over: while init runs there is nothing to remind about,
+  // and once finalize has written workspace.json, only commits after that count.
+  if (ws.initPhase === 'scaffolded') return null;
+  if (ws.initPhase === 'done') {
+    try {
+      since = Math.max(since, Math.floor(statSync(join(root, '.claude', 'workspace.json')).mtimeMs / 1000));
+    } catch { /* unreadable: keep the handoff reference */ }
+  }
 
   const places = [{ name: 'Docs', dir: root }];
   for (const repo of Array.isArray(ws.repos) ? ws.repos : []) {
