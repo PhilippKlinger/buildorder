@@ -124,7 +124,6 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
 
 At most 12 lines: what was set up, the number of backlog tasks, the assumptions made, and what did not happen
 (no GitHub repo, no push, no build). Then one short list of recommendations, nothing installed:
-- the `notes` of the `standard` output (for example installing the pre-commit hooks)
-- with `django` on `container` or `paas`: `DJANGO_BEHIND_PROXY=true` behind a TLS-terminating proxy
+- the `notes` of the `standard` output (for example installing the pre-commit hooks), and the proxy note of step 2
 - the Superpowers plugin, and the code-intelligence plugin for the stack's language
 - open a new session so the hooks load, then start with `/buildorder:kickoff`
