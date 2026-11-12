@@ -4,13 +4,13 @@ description: Security and data protection audit of one repo in a Buildorder work
 argument-hint: "[repo path] [all]"
 context: fork
 effort: high
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard *), Bash(git -C * diff*), PowerShell(git -C * diff*), Bash(git -C * log*), PowerShell(git -C * log*), Bash(git -C * status*), PowerShell(git -C * status*), Read, Grep, Glob
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status*), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), Read, Grep, Glob
 ---
 
 # Secure
 
 Audit one repo for security and data protection and report. Read and judge only: edit no file, commit nothing,
-never pass `--apply` to the CLI, run no dependency audit (CI does that). Never print a secret value, not even
+run only read-only git commands, run no dependency audit (CI does that). Never print a secret value, not even
 shortened: name file, line and kind only.
 
 ## Workspace state (live)
@@ -31,13 +31,17 @@ shortened: name file, line and kind only.
 
 ## 2. Vulnerabilities
 
-- **In-repo:** invoke the built-in `security-review` skill with the Skill tool and take its findings over without
-  rewording them. It takes no target and reads `git diff origin/HEAD...`. If `git -C "<repo folder>" log -1 origin/HEAD`
-  fails, tell the user to run `git remote set-head origin --auto` and continue as in root mode.
-- **Root:** apply the same method yourself to `git -C "<repo folder>" diff origin/HEAD...` plus
-  `git -C "<repo folder>" diff HEAD`: injection, missing auth or access checks, secrets, unsafe deserialisation,
-  unvalidated input at trust boundaries, weak crypto. The report then says that the built-in `/security-review`
-  is still open, with the tip to start the session in the repo.
+- **In-repo:** invoke the built-in `security-review` skill with the Skill tool. It takes no target and reads
+  `git diff origin/HEAD...`; if `git -C "<repo folder>" log -1 origin/HEAD` fails, tell the user to run
+  `git remote set-head origin --auto` and review as in root mode. Count it as *ran* only when the Skill tool result
+  holds its findings or says it found none; then take them over without rewording. If it cannot run, or only
+  reports that it started or runs in the background, it is *pending* (its findings arrive separately in the main
+  conversation): review the diff yourself as in root mode.
+- **Root:** apply the same method yourself. Committed: `git -C "<repo folder>" diff origin/HEAD...` (without
+  `origin/HEAD`: `main...`); uncommitted: `git -C "<repo folder>" diff HEAD`; new files: the `??` entries of
+  `git -C "<repo folder>" status --porcelain`, read in full. Look for injection, missing auth or access checks,
+  secrets, unsafe deserialisation, unvalidated input at trust boundaries, weak crypto. The built-in
+  `/security-review` is then *pending*, with the tip to start the session in the repo.
 - **Cloudflare:** if your skill list holds `security-audit` (also with a plugin prefix, `<plugin>:security-audit`),
   invoke it for the same repo and take its findings over. Otherwise the report says in one line that it is not installed.
 - With scope `all`, also read the whole repo for the same patterns, not only the diff.
@@ -54,9 +58,9 @@ The built-in reviews do not cover these. With scope diff, check what the diff to
 - **Personal data:** none in logs, error reports, test data or fixtures. Where it is stored, it can be deleted and
   exported. Data sent to AI APIs is reduced to what the task needs.
 - **Public files:** no sensitive values in what ships to the browser or into the image.
-- **Standard:** run `node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" standard "<repo folder>"`, adding
-  `--visibility private` when the repo's `standards.deviations` in `workspace.json` give a private repo as reason.
-  The output is a read-only plan. Each `skipped` item whose reason is the private repo (CodeQL, Dependency Review) is
+- **Standard:** run `node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan "<repo folder>"` (the read-only plan).
+  Visibility: pass `--visibility <value>` from the repo's `visibility` in `workspace.json` when set; otherwise
+  `--visibility private` when its `standards.deviations` give a private repo as reason; otherwise leave it out. Each `skipped` item whose reason is the private repo (CodeQL, Dependency Review) is
   a scanning gap: Minor when the decisions file (`docs.decisions`) records it with its reason, otherwise Important.
   `secret-scan` in state `missing` is Important.
 
@@ -77,7 +81,7 @@ Write in the language `language.docs`; keep the severity names and the last line
 
 ```markdown
 ## Security: <repo> · <scope: diff | all>
-**Built-in /security-review:** ran / still open (start the session in <repo> for the full run)
+**Built-in /security-review:** ran / pending (started separately: findings arrive in the main conversation | start the session in <repo> for the full run)
 **Cloudflare security-audit:** ran / not installed
 **Risk:** low / medium / high (one sentence why)
 
@@ -94,5 +98,5 @@ what leaves the system, where to, with which content, and whether it is document
 release-ready: yes / no (one sentence why)
 ```
 
-`no` as soon as anything is Critical or Important. If the built-in run is still open and nothing blocks, write
-`release-ready: yes (built-in /security-review open)`. Leave out empty sections.
+`no` as soon as anything is Critical or Important. Plain `yes` only when the built-in run *ran*; while it is
+*pending* and nothing blocks, write `release-ready: yes (pending built-in /security-review)`. Leave out empty sections.

@@ -79,18 +79,21 @@ test('the CLI is called via the plugin root and every workflow and module skill 
 });
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-// Read-only pre-approvals: file tools that only read, the CLI's status and standard plan, git diff, log and status.
+// Read-only pre-approvals: file tools that only read and the CLI's status and plan commands, which take no
+// writing option. Git patterns are not pre-approved: a `*` also matches `-c core.fsmonitor=...`, `--output=`
+// and other subcommands; Claude Code's own read-only git handling decides instead.
 const READ_ONLY_TOOL = new RegExp([
   '^(Read|Grep|Glob)$',
-  `^(Bash|PowerShell)\\(node ${escape(CLI)} (status|standard) ?\\*\\)$`,
-  '^(Bash|PowerShell)\\(git -C \\* (diff|log|status) ?\\*\\)$',
+  `^(Bash|PowerShell)\\(node ${escape(CLI)} (status|plan) ?\\*\\)$`,
 ].join('|'));
 
 test('module skills only report: they run in a fork and pre-approve read-only tools only', () => {
-  for (const probe of ['Write', 'Edit', 'Bash', 'Bash(*)', 'Bash(git -C * push*)', 'Bash(node x.mjs status*)']) {
+  const writing = ['Write', 'Edit', 'Bash', 'Bash(*)', 'Bash(git -C * diff*)', 'PowerShell(git -C * status*)',
+    'Bash(node x.mjs status*)', `Bash(node ${CLI} standard *)`];
+  for (const probe of writing) {
     assert.ok(!READ_ONLY_TOOL.test(probe), `probe '${probe}' must not count as read-only`);
   }
-  for (const probe of ['Read', 'Bash(git -C * diff *)', `PowerShell(node ${CLI} standard *)`]) {
+  for (const probe of ['Read', `Bash(node ${CLI} status*)`, `PowerShell(node ${CLI} plan *)`]) {
     assert.ok(READ_ONLY_TOOL.test(probe), `probe '${probe}' must count as read-only`);
   }
   for (const name of MODULE) {
