@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, tmp, write } from '../helpers/cli.mjs';
 
@@ -79,6 +79,17 @@ test('Claude Code local settings in .claude do not block and stay as they are', 
   const out = scaffold(dir);
   assert.deepEqual(sorted(out.created), sorted(ALL_FILES));
   assert.equal(read(dir, '.claude/settings.local.json'), '{ "permissions": {} }\n');
+});
+
+test('a rerun without --lang and --name keeps those of the workspace', () => {
+  const dir = tmp('scaffold resume');
+  scaffold(dir, '--lang', 'de', '--name', 'demo');
+  rmSync(join(dir, 'HANDOFF.md'));
+  rmSync(join(dir, 'SPRINT.md'));
+  const out = scaffold(dir);
+  assert.deepEqual(sorted(out.created), ['HANDOFF.md', 'SPRINT.md']);
+  assert.match(read(dir, 'HANDOFF.md'), /^# \u00dcbergabe — /);
+  assert.match(read(dir, 'SPRINT.md'), /^# Sprint — demo\n\n\*\*Stand:\*\*/);
 });
 
 test('repos come from detect; --repo selects among them', () => {

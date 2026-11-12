@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { PLUGIN_ROOT, detect, safeName, validName } from './detect.mjs';
 import { normalizePath, relativeTo } from './paths.mjs';
+import { loadWorkspace } from './workspace.mjs';
 
 /** The doc-map: `docs` key in workspace.json -> file in the workspace root. */
 export const DOC_MAP = {
@@ -58,12 +59,13 @@ function pickRepos(root, found, wanted) {
 }
 
 /**
- * Writes the workspace files into `dir` (an existing folder). Options: `lang` (en|de, default en),
- * `name` (default: the folder name), `repo` (repo paths to record; default: every repo detect finds).
+ * Writes the workspace files into `dir` (an existing folder). Options: `lang` (en|de), `name`, `repo`
+ * (repo paths to record; default: every repo detect finds). Without `lang` and `name`, a rerun keeps
+ * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
-export function scaffold(dir, { lang = 'en', name, repo } = {}) {
-  if (!LANGUAGES.includes(lang)) throw new Error(`--lang must be one of ${LANGUAGES.join(', ')}`);
+export function scaffold(dir, { lang, name, repo } = {}) {
+  if (lang !== undefined && !LANGUAGES.includes(lang)) throw new Error(`--lang must be one of ${LANGUAGES.join(', ')}`);
   if (name !== undefined && !validName(name)) {
     throw new Error(`invalid name '${name}': letters, digits, space and ._-, at most 63 characters`);
   }
@@ -71,7 +73,10 @@ export function scaffold(dir, { lang = 'en', name, repo } = {}) {
   const root = d.dir;
   const why = refusal(d);
   if (why) throw new Error(why);
-  const wsName = name ?? safeName(basename(root));
+  const existing = d.workspace ? loadWorkspace(root) : null;
+  const docsLang = lang ?? (LANGUAGES.includes(existing?.language?.docs) ? existing.language.docs : 'en');
+  const keptName = typeof existing?.name === 'string' && validName(existing.name) ? existing.name : null;
+  const wsName = name ?? keptName ?? safeName(basename(root));
   const repos = pickRepos(root, d.repos, repo);
 
   const created = [];
@@ -91,7 +96,7 @@ export function scaffold(dir, { lang = 'en', name, repo } = {}) {
   const ws = {
     schemaVersion: 1,
     name: wsName,
-    language: { docs: lang },
+    language: { docs: docsLang },
     initPhase: 'scaffolded',
     docs: { ...DOC_MAP },
     repos,
@@ -102,7 +107,7 @@ export function scaffold(dir, { lang = 'en', name, repo } = {}) {
   const date = today();
   const vals = { name: wsName, date, month: date.slice(0, 7) };
   for (const file of ['CLAUDE.md', ...Object.values(DOC_MAP)]) {
-    put(file, fill(readFileSync(join(TEMPLATES, lang, file), 'utf8'), vals));
+    put(file, fill(readFileSync(join(TEMPLATES, docsLang, file), 'utf8'), vals));
   }
   return { ok: true, dir: root, created, skipped };
 }
