@@ -34,7 +34,7 @@ const TEST_DIRS = new Set(['test', 'tests', '__tests__', 'spec', 'e2e']);
 const TEST_FILE = [/\.(test|spec)\.[cm]?[jt]sx?$/, /^test_.+\.py$/, /_test\.(py|go)$/, /^tests\.py$/];
 const TEST_DEPTH = 4;
 
-const BUILDORDER_VERSION = readJson(join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'))?.version ?? null;
+export const BUILDORDER_VERSION = readJson(join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'))?.version ?? null;
 
 const under = (f, folders) => folders.some((p) => f.startsWith(`${p}/`));
 
