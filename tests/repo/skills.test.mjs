@@ -8,6 +8,7 @@ import { repoRoot } from '../helpers/repo.mjs';
 
 const SKILLS = join(repoRoot, 'plugins', 'buildorder', 'skills');
 const WORKFLOW = ['assess', 'handoff', 'kickoff'];
+const MODULE = ['review', 'secure'];
 const CLI = '"${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs"';
 const STATUS_INJECTION = '!`node ' + CLI + ' status`';
 
@@ -26,8 +27,8 @@ const skills = () => (existsSync(SKILLS) ? readdirSync(SKILLS, { withFileTypes: 
   .filter((e) => e.isDirectory()).map((e) => e.name).sort();
 const read = (name) => readFileSync(join(SKILLS, name, 'SKILL.md'), 'utf8');
 
-test('the workflow skills ship with the plugin', () => {
-  for (const name of WORKFLOW) assert.ok(skills().includes(name), `skills/${name}/SKILL.md missing`);
+test('the workflow and module skills ship with the plugin', () => {
+  for (const name of [...WORKFLOW, ...MODULE]) assert.ok(skills().includes(name), `skills/${name}/SKILL.md missing`);
 });
 
 test('each skill has frontmatter with its folder name and a description', () => {
@@ -53,8 +54,8 @@ test('frontmatter values are valid YAML plain scalars or quoted', () => {
   }
 });
 
-test('workflow skills stay automatically invocable', () => {
-  for (const name of WORKFLOW) {
+test('workflow and module skills stay automatically invocable', () => {
+  for (const name of [...WORKFLOW, ...MODULE]) {
     assert.doesNotMatch(read(name), /^disable-model-invocation:/m, name);
   }
 });
@@ -64,7 +65,7 @@ test('assess reads untrusted repo code, so writing the audit file asks the user'
   assert.doesNotMatch(tools, /(^|[\s,])(Write|Edit)([\s,(]|$)/);
 });
 
-test('the CLI is called via the plugin root and every workflow skill injects status', () => {
+test('the CLI is called via the plugin root and every workflow and module skill injects status', () => {
   for (const name of skills()) {
     const text = read(name);
     // Commands in code spans and in allowed-tools patterns.
@@ -72,7 +73,33 @@ test('the CLI is called via the plugin root and every workflow skill injects sta
       assert.ok(m[1].startsWith(CLI), `${name}: CLI path must be ${CLI}, got ${m[1]}`);
     }
   }
-  for (const name of WORKFLOW) assert.ok(read(name).includes(STATUS_INJECTION), `${name}: status injection missing`);
+  for (const name of [...WORKFLOW, ...MODULE]) {
+    assert.ok(read(name).includes(STATUS_INJECTION), `${name}: status injection missing`);
+  }
+});
+
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Read-only pre-approvals: file tools that only read, the CLI's status and standard plan, git diff, log and status.
+const READ_ONLY_TOOL = new RegExp([
+  '^(Read|Grep|Glob)$',
+  `^(Bash|PowerShell)\\(node ${escape(CLI)} (status|standard) ?\\*\\)$`,
+  '^(Bash|PowerShell)\\(git -C \\* (diff|log|status) ?\\*\\)$',
+].join('|'));
+
+test('module skills only report: they run in a fork and pre-approve read-only tools only', () => {
+  for (const probe of ['Write', 'Edit', 'Bash', 'Bash(*)', 'Bash(git -C * push*)', 'Bash(node x.mjs status*)']) {
+    assert.ok(!READ_ONLY_TOOL.test(probe), `probe '${probe}' must not count as read-only`);
+  }
+  for (const probe of ['Read', 'Bash(git -C * diff *)', `PowerShell(node ${CLI} standard *)`]) {
+    assert.ok(READ_ONLY_TOOL.test(probe), `probe '${probe}' must count as read-only`);
+  }
+  for (const name of MODULE) {
+    const fm = frontmatter(read(name));
+    assert.equal(fm.context, 'fork', `${name}: context must be fork`);
+    const tools = (fm['allowed-tools'] ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+    assert.ok(tools.length > 0, `${name}: allowed-tools missing`);
+    for (const tool of tools) assert.match(tool, READ_ONLY_TOOL, `${name}: '${tool}' is not read-only`);
+  }
 });
 
 test('skills are English and hold no personal names', () => {
