@@ -212,6 +212,37 @@ test('--gaps leaves out deliberate skips, says when there is no gap and refuses 
   assert.match(both.stderr, /^buildorder: --gaps lists the plan and cannot be combined with --apply\n$/);
 });
 
+test('a repo with two supported stacks gets the second one named as not covered in the plan', () => {
+  const dir = localGit(codeRepo('standard two stacks', {
+    'backend/manage.py': '',
+    'backend/requirements.txt': 'Django==5.2.1\n',
+    'frontend/package.json': JSON.stringify({ dependencies: { react: '19.0.0' }, devDependencies: { vite: '7.0.0' } }),
+  }));
+  const before = snapshot(dir);
+  const out = standard(dir, '--deploy', 'none');
+  const chosen = out.stack.id;
+  const other = chosen === 'django' ? 'react' : 'django';
+  assert.ok(['django', 'react'].includes(chosen), chosen);
+  const named = (notes, id) => notes.some((n) => n.startsWith(`'${id}' is also detected but not covered`));
+  assert.ok(named(out.notes, other), out.notes.join(' | '));
+  assert.ok(!named(out.notes, chosen), 'the chosen stack is not named as uncovered');
+  // The other way round with an explicit choice.
+  const flipped = standard(dir, '--stack', other, '--deploy', 'none');
+  assert.ok(named(flipped.notes, chosen));
+  assert.deepEqual(snapshot(dir), before, 'the plan is read-only');
+});
+
+test('a stack without a module gets the gap note only, not a misleading "also detected" note', () => {
+  const dir = localGit(codeRepo('standard two stacks no module', {
+    'backend/manage.py': '',
+    'backend/requirements.txt': 'Django==5.2.1\n',
+    'frontend/package.json': JSON.stringify({ dependencies: { react: '19.0.0' }, devDependencies: { vite: '7.0.0' } }),
+  }));
+  const out = standard(dir, '--stack', 'vue', '--deploy', 'none');
+  assert.ok(out.notes.some((n) => /no stack module for 'vue'/.test(n)), out.notes.join(' | '));
+  assert.ok(!out.notes.some((n) => n.includes('is also detected')), out.notes.join(' | '));
+});
+
 test('plan prints the read-only plan of standard and refuses --apply', () => {
   const dir = localGit(codeRepo('standard plan', { 'README.md': '# x\n' }));
   const before = snapshot(dir);

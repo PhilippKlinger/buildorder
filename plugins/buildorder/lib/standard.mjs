@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { detectDeploy } from './deploy.mjs';
-import { PLUGIN_ROOT, detect } from './detect.mjs';
+import { PLUGIN_ROOT, repoCode } from './detect.mjs';
 import { SKIP_DIRS, readJson, walk, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
 import { relativeTo } from './paths.mjs';
@@ -341,8 +341,19 @@ function itemsOf(root, model, sel) {
   });
 }
 
-function notesOf(sel, { image, cd }) {
+/** Supported stacks the repo shows besides the one the standard is built for (a module covers one stack). */
+function uncoveredStacks(root, sel) {
+  const { supported } = detectStacks(root);
+  return supported.filter((s) => STACK_IDS.includes(s) && s !== sel.stackId);
+}
+
+function notesOf(root, sel, { image, cd }) {
   const notes = [];
+  // Without a stack module there is no "covered" stack to compare with; the gap note below says it.
+  for (const id of sel.stack ? uncoveredStacks(root, sel) : []) {
+    notes.push(`'${id}' is also detected but not covered: the stack module '${sel.stackId}' sets up lint, tests with `
+      + `coverage, build and dependency audit for '${sel.stackId}' only; add the checks for '${id}' to ci.yml by hand`);
+  }
   if (!sel.stack) {
     notes.push(`${stackGap(sel)}: lint, tests with coverage, build and dependency audit are not set up; `
       + 'add them to ci.yml by hand');
@@ -380,7 +391,7 @@ function report(root, model, sel) {
     items: itemsOf(root, model, sel),
     files: filesOf(sel).map(({ path }) => ({ path, state: existsSync(join(root, ...path.split('/'))) ? 'exists' : 'create' })),
     deviations: sel.deviations,
-    notes: notesOf(sel, { image, cd }),
+    notes: notesOf(root, sel, { image, cd }),
   };
 }
 
@@ -431,7 +442,8 @@ function uncommitted(root, files) {
 
 /**
  * Records `standards` on the repo's entry in the enclosing workspace.json, and refreshes its `isCode` and `stacks`
- * from detect: the entry was written when the repo was still empty. `{ dir, recorded }`, or null.
+ * from this repo's own files (never the whole workspace): the entry was written when the repo was still empty.
+ * `{ dir, recorded }`, plus a `reason` when there is no entry to record on; null outside a workspace.
  */
 function record(root, standards) {
   const wsRoot = findWorkspaceRoot(root);
@@ -440,10 +452,9 @@ function record(root, standards) {
   const rel = relativeTo(root, wsRoot);
   const entry = (Array.isArray(ws.repos) ? ws.repos : [])
     .find((r) => typeof r?.path === 'string' && relativeTo(resolve(wsRoot, r.path), wsRoot) === rel);
-  if (!entry) return { dir: wsRoot, recorded: false };
+  if (!entry) return { dir: wsRoot, recorded: false, reason: `no entry for '${rel}' in workspace.json` };
   entry.standards = standards;
-  const found = detect(wsRoot).repos.find((r) => relativeTo(resolve(wsRoot, r.path), wsRoot) === rel);
-  if (found) Object.assign(entry, { isCode: found.isCode, stacks: found.stacks });
+  Object.assign(entry, repoCode(root));
   writeJson(join(wsRoot, '.claude', 'workspace.json'), ws);
   return { dir: wsRoot, recorded: true };
 }

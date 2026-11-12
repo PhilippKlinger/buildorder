@@ -5,6 +5,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [1.0.0] - 2026-11-12
+
+### Added
+
+- Four more stack modules, each with a tested starter and its part of the mandatory pipeline: `go` (golangci-lint,
+  race tests with coverage, govulncheck, a distroless image), `python` (a library starter with ruff, pytest with
+  coverage, pip-audit and a build; libraries get "no Docker" proposed), `react` and `angular` (lint, formatting,
+  tests with coverage, build, `npm audit`; deploy as a webspace artifact or an unprivileged Nginx image).
+- `/buildorder:sync` and `sync <workspace> [--apply]`: lifts a workspace to the installed version. It adds missing
+  files, updates only files that are still exactly what buildorder wrote, and reports every file you changed as
+  `skip-modified`. It never writes inside a code repo or to `settings.local.json`.
+- `/buildorder:radar` (with a read-only reader agent): reports what is new in the official Claude Code changelog,
+  releases and docs since the last run, filtered for your workspace, as at most three proposals. A finding about
+  buildorder itself comes as issue text for you to paste into the GitHub form; nothing is filed automatically.
+- Release attestation: every published release gets `buildorder-<tag>.tar.gz` with a build-provenance attestation,
+  verifiable with `gh attestation verify`.
+- A test that every tracked text file is valid UTF-8.
+
+### Changed
+
+- `/buildorder:init` and the README list all five stack modules, ask for the release style of an existing project,
+  phrase statements about data before `assess` as hints, and list the GitHub settings files under the final step.
+- The README no longer marks buildorder as a pre-release, states that there is no telemetry, names the radar's one
+  write (the run date in `.claude/workspace.json`), lists golangci-lint for `go` and shows the full attestation
+  check including `--signer-workflow`.
+- `github-checklist --repo owner/name` accepts only valid GitHub owner and repository names and only when exactly one
+  repo of the workspace has no GitHub origin.
+- The Python starter sets `pythonpath = ["src"]`, so a plain `pytest` works without an editable install.
+
+### Fixed
+
+- The init skill contained two invalid UTF-8 bytes; they are replaced.
+- The radar no longer prints a `gh issue create` command with web-derived text in quotes (backticks or `$(...)`
+  would run when pasted); it prints the texts as plain blocks and offers `gh issue create --web`. The reader agent
+  follows links only under the official Claude Code GitHub and docs addresses.
+- `sync` compares `.claude` and `.git` path segments case-insensitively on every platform and refuses a target that
+  resolves outside the workspace through a link.
+- The release workflow checks out the tag as `refs/tags/<tag>`.
+- `standard` names a second detected stack as "not covered" only when a stack module is in use.
+- No handoff reminder for init's own commit; `standard --apply` refreshes only its own repo entry in
+  `workspace.json`; a repo with a second supported stack gets it named as not covered.
+
 ## [0.2.0] - 2026-11-12
 
 ### Added
@@ -62,6 +104,7 @@ First pre-release.
   handoff reminder on stop.
 - Skills: `/buildorder:init`, `kickoff`, `handoff`, `assess`, `review` and `secure`.
 
+[1.0.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v1.0.0
 [0.2.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.2.0
 [0.1.1]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.1
 [0.1.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.0

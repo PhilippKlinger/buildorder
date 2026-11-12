@@ -39,3 +39,30 @@ test('README and CHANGELOG name no person', () => {
     assert.ok(!namesPerson(read(f)), `${f} must not name a person`);
   }
 });
+
+test('the release workflow attests the release archive with least privilege', () => {
+  const wf = read('.github/workflows/release.yml');
+  assert.match(wf, /^on:\s*\n\s+release:\s*\n\s+types:\s*\[published\]/m, 'must trigger on published releases only');
+  assert.match(wf, /^permissions:\s*\{\}\s*$/m, 'top-level permissions must be empty');
+  const perms = [...wf.matchAll(/^ {6}([a-z-]+): (read|write)\s*$/gm)].map((m) => `${m[1]}: ${m[2]}`).sort();
+  assert.deepEqual(perms, ['attestations: write', 'contents: write', 'id-token: write'], 'job permissions must be exactly these three');
+  assert.match(wf, /uses: actions\/attest-build-provenance@[0-9a-f]{40} # v\d/, 'attest action must be pinned by full SHA');
+  for (const m of wf.matchAll(/^\s*(?:- )?uses: (\S+)@(\S+)/gm)) {
+    assert.match(m[2], /^[0-9a-f]{40}$/, `${m[1]} must be pinned by full SHA`);
+  }
+  assert.match(wf, /persist-credentials: false/, 'checkout must not persist credentials');
+  assert.match(wf, /^ {10}ref: refs\/tags\/\$\{\{ github\.event\.release\.tag_name \}\}$/m, 'checkout must name the tag as refs/tags/<tag> in with:');
+  assert.match(wf, /-o buildorder-"\$TAG"\.tar\.gz/, 'archive name must follow buildorder-<tag>.tar.gz');
+  assert.match(wf, /git archive --format=tar\.gz --prefix=buildorder-"\$TAG"\//, 'archive must be built with git archive');
+  // No expression interpolation inside any run block (template injection).
+  const lines = wf.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\s*)(?:- )?run:\s*(.*)$/);
+    if (!m) continue;
+    const block = [m[2]];
+    if (/^[|>]/.test(m[2])) {
+      for (let j = i + 1; j < lines.length && (lines[j].trim() === '' || lines[j].search(/\S/) > m[1].length); j++) block.push(lines[j]);
+    }
+    assert.ok(!block.join('\n').includes('${{'), `run block at line ${i + 1} must not interpolate expressions`);
+  }
+});

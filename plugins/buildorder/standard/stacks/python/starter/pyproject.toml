@@ -24,6 +24,7 @@ select = ["E", "W", "F", "I", "B", "UP", "S"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = ["--strict-markers"]
 
 [tool.coverage.run]

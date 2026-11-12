@@ -8,8 +8,6 @@ A Claude Code plugin that sets up a workspace and engineering standards for your
 
 Your agent writes the code. Buildorder builds the engineering around it.
 
-> **Pre-release (0.x).** Interfaces may change between versions.
-
 ```mermaid
 flowchart LR
   dev["Developer"]
@@ -50,17 +48,17 @@ flowchart LR
 ## Installation
 
 ```text
-/plugin marketplace add PhilippKlinger/buildorder#v0.2.0
+/plugin marketplace add PhilippKlinger/buildorder#v1.0.0
 /plugin install buildorder@buildorder
 ```
 
-`#v0.2.0` pins the marketplace to that release tag; without it, the marketplace follows `main`.
+`#v1.0.0` pins the marketplace to that release tag; without it, the marketplace follows `main`.
 Install the plugin at user scope (the default of `claude plugin install`). To turn it off for one project,
 disable it there with `/plugin` (project scope).
 
 ## Quickstart
 
-Run `/buildorder:init` in an empty folder (new Django project) or in a folder that holds one existing git repo.
+Run `/buildorder:init` in an empty folder (new project in one of the five stacks below) or in a folder that holds one existing git repo.
 It does the following:
 
 1. Checks the folder and runs a short interview (at most 8 questions).
@@ -72,14 +70,15 @@ It does the following:
 
 If you run it inside the existing repo itself, init offers to move the repo into a subfolder first, so the
 folder can become the workspace; it moves nothing without your OK. Afterwards, open a new session so the hooks
-load, and start with `/buildorder:kickoff`.
+load, and start with `/buildorder:kickoff`. After updating the plugin, run `/buildorder:sync` to bring the
+workspace files up to the installed version, and `/buildorder:radar` to see what is new in Claude Code.
 
 ## How it differs from `/init`
 
 Claude Code's built-in `/init` reads the codebase and writes a `CLAUDE.md` for it. `/buildorder:init` writes a
 `CLAUDE.md` too, but into a workspace folder next to the code repo, together with docs for handoff, sprint,
 backlog, decisions and assumptions, kept in a private git repo of their own. For a new project it also writes a CI
-pipeline and, for Django, a tested starter into the code repo; for an existing project it records what is missing
+pipeline and a tested starter for the chosen stack into the code repo; for an existing project it records what is missing
 as backlog tasks. Inside the workspace, hooks guard commits and control files, and the skills start and end each
 session from these docs.
 
@@ -95,6 +94,8 @@ session from these docs.
 | `/buildorder:assess` | Static assessment of one repo, findings ranked P0 to P3 |
 | `/buildorder:review` | Code review with the project's own criteria (reports only) |
 | `/buildorder:secure` | Security and data protection audit (reports only) |
+| `/buildorder:sync` | Lists what the installed templates would add or update in `CLAUDE.md` and the doc-map; writes after your OK and never overwrites a file you changed |
+| `/buildorder:radar` | Reads the official Claude Code sources for news since the last run and proposes at most three changes; changes no files except the run date in `.claude/workspace.json` |
 
 **Hooks**
 
@@ -104,8 +105,18 @@ session from these docs.
 - Compaction guard: after a compaction, asks to re-sync from the handoff before continuing.
 - Handoff reminder: when commits are newer than the handoff file.
 
-**Stack:** `django` so far. Other stacks get the workspace and the stack-independent CI only.
-The Django starter is a minimal project with a `/healthz/` endpoint and its test; it has neither `auth` nor `admin`.
+**Stacks:** five modules, each with CI jobs and a tested starter.
+
+| Stack | CI jobs |
+|---|---|
+| `django` | ruff, pytest with coverage against PostgreSQL, `manage.py check --deploy` and `collectstatic`, pip-audit |
+| `python` | ruff, pytest with coverage, `python -m build`, pip-audit (a library starter) |
+| `go` | golangci-lint, `go test -race` with coverage, `go build`, `go mod verify`, govulncheck |
+| `react` | eslint, `tsc`, prettier, vitest with coverage, `vite build`, `npm audit` |
+| `angular` | `ng lint`, prettier, `ng test --coverage`, `ng build`, `npm audit` |
+
+Other stacks get the workspace and the stack-independent CI only. The Django and Go starters expose a health
+endpoint (`/healthz/` and `/healthz`) with a test; the Django starter has neither `auth` nor `admin`.
 
 **Deploy targets:** `container`, `paas`, `webspace` or `none`. The container image (Trivy scan, SBOM,
 build-provenance attestation) and its CD come from the `docker-cicd` module.
@@ -115,8 +126,7 @@ build-provenance attestation) and its CD come from the `docker-cicd` module.
 **The pipeline Buildorder writes** into a new repo is one `ci.yml` that runs on pushes to `main`, on pull
 requests and on demand. Its `ci-ok` job is the required check of the ruleset in the settings checklist.
 
-- Stack jobs (Django): `ruff check` and `ruff format --check`, `pytest --cov` against PostgreSQL,
-  `manage.py check --deploy` and `collectstatic`, `pip-audit`.
+- Stack jobs: lint, tests with coverage, build and dependency audit of the chosen stack (see the table above).
 - gitleaks over the full history, zizmor over the workflows, and the pre-commit hooks.
 - Dependency Review on pull requests and CodeQL for the stack's language and for GitHub Actions, in public repos
   only: for a private repo both jobs are left out and recorded as a deviation (see
@@ -138,8 +148,9 @@ demand; `ci-ok` requires every job to succeed.
 - `pre-commit`: the repo's pre-commit hooks.
 - `zizmor`: zizmor over this repo's workflows and over the workflows `standard` generates, then actionlint over
   the generated ones.
-- `django-fixture`: writes the Django starter and its pipeline into an empty repo and runs that pipeline's core
-  steps on it: lint, tests with coverage against PostgreSQL, build checks, dependency audit, image build and Trivy.
+- `django-fixture`, `python-fixture`, `go-fixture`, `react-fixture`, `angular-fixture`: each writes that stack's
+  starter and pipeline into an empty repo and runs the pipeline's core steps on it: lint, tests with coverage,
+  build checks, dependency audit and, where the stack has an image, image build and Trivy.
 - `gitleaks`: `gitleaks/gitleaks-action`; pull requests scan their commits; the weekly and manual runs scan the full
   history.
 - `codeql`: CodeQL for JavaScript and GitHub Actions.
@@ -147,6 +158,11 @@ demand; `ci-ok` requires every job to succeed.
 actionlint runs from its official release archive, pinned by version and SHA-256, because no pinned action checks
 the generated workflows in the same job. A separate `scorecard.yml` runs OpenSSF Scorecard on pushes to `main`,
 weekly, and publishes the result; it rates the repo and is not part of `ci-ok`.
+
+**Releases.** The release workflow builds the archive from the tagged commit and attaches a build-provenance
+attestation. Verify a downloaded archive with
+`gh attestation verify buildorder-<tag>.tar.gz --repo PhilippKlinger/buildorder --signer-workflow PhilippKlinger/buildorder/.github/workflows/release.yml`.
+Only the archive attached to the release is attested; GitHub's automatic source archives are not.
 
 ## Security model
 
@@ -181,9 +197,14 @@ Known limits:
 
 - Buildorder never pushes, never creates repositories and never calls the GitHub API at present.
   GitHub settings are a checklist with ready commands that you run.
+- No telemetry. Data leaves your machine only when `/buildorder:radar` fetches the fixed public Claude Code pages
+  (WebFetch) and through `gh` commands that you run yourself.
 - Hooks are guardrails, not a guarantee; see [Security model](#security-model) for what they do and their known
   limits.
-- Private repos skip CodeQL and Dependency Review (paid GitHub products) and record this as a deviation.
+- Private repos skip CodeQL and Dependency Review (paid GitHub products: GitHub Code Security, which GitHub offers only
+  for organization-owned repos on Team or Enterprise Cloud) and record this as a deviation.
+- A repo with several stacks gets the CI block of one stack; the others are named in the plan as not covered, and you
+  add their checks to `ci.yml` by hand.
 - Behind a reverse proxy that terminates TLS, set `DJANGO_BEHIND_PROXY=true` for the Django starter.
 
 ## License

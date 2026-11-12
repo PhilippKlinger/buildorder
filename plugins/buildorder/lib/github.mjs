@@ -42,11 +42,19 @@ export const RULESET_BODY = {
 
 const GITHUB_REMOTE = /github\.com[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i;
 
-/** `{ slug, remote }`: `owner/name` from a GitHub origin, else the placeholder `OWNER/<folder>`. */
-function slugOf(abs) {
+/**
+ * `{ slug, remote }`: `owner/name` from a GitHub origin, else the `given` one (from the interview), else
+ * the placeholder `OWNER/<folder>`. `remote` is false only for the placeholder.
+ */
+function originMatch(abs) {
   const url = git(abs, ['remote', 'get-url', 'origin']);
-  const m = url ? maskRemote(url).match(GITHUB_REMOTE) : null;
+  return url ? maskRemote(url).match(GITHUB_REMOTE) : null;
+}
+
+function slugOf(abs, given) {
+  const m = originMatch(abs);
   if (m) return { slug: `${m[1]}/${m[2]}`, remote: true };
+  if (given) return { slug: given, remote: true };
   return { slug: `OWNER/${basename(abs).replace(/[^\w.-]+/g, '-')}`, remote: false };
 }
 
@@ -121,27 +129,43 @@ function markdown(repos, lang) {
   ].join('\n');
 }
 
+/** `owner/name` as GitHub allows it: owner up to 39 chars of letters, digits, hyphens; name not `.`/`..`, no leading `-`. */
+function validSlug(slug) {
+  const m = typeof slug === 'string' ? slug.match(/^([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9._-]+)$/) : null;
+  return Boolean(m) && m[2] !== '.' && m[2] !== '..' && !m[2].startsWith('-');
+}
+
 /**
  * Writes the checklist (in the workspace's `language.docs`, `de` or else English) and the ruleset body (plus one without required checks when a repo has no `ci-ok`
  * job yet) into the workspace that encloses `dir`, never overwriting:
  * `{ ok, dir, files: [{ path, state: created | exists }], repos: [{ path, slug, remote, ciOk, visibility }] }`.
  * `visibility` comes from the repo entry (null when unknown); a private repo gets no secret scanning commands.
- * Throws outside a Buildorder workspace.
+ * `repo` (`owner/name`, from the interview) names the repo when it has no GitHub origin yet; a local origin wins.
+ * Throws outside a Buildorder workspace or for a malformed `repo`.
  */
-export function githubChecklist(dir) {
+export function githubChecklist(dir, { repo: given } = {}) {
+  if (given !== undefined && !validSlug(given)) throw new Error('--repo must look like owner/name (a GitHub owner and repo name)');
   const root = findWorkspaceRoot(dir);
   const ws = root ? loadWorkspace(root) : null;
   if (!ws) throw new Error(`not inside a Buildorder workspace: ${resolve(dir)}`);
   // The docs language of the workspace; anything but `de` (missing, unknown) keeps the English text.
   const lang = ws.language?.docs === 'de' ? 'de' : 'en';
-  const repos = [];
+  const found = [];
   for (const repo of Array.isArray(ws.repos) ? ws.repos : []) {
     if (typeof repo?.path !== 'string') continue;
     const abs = resolve(root, repo.path);
     const rel = relativeTo(abs, root);
     if (!rel || !existsSync(join(abs, '.git'))) continue;
+    found.push({ repo, abs, rel });
+  }
+  // `--repo` names one repo; with several candidates (or none) it could name the wrong one.
+  if (given !== undefined && found.filter((f) => !originMatch(f.abs)).length !== 1) {
+    throw new Error('--repo only works when the workspace has exactly one repo without a GitHub origin; set the origin instead');
+  }
+  const repos = [];
+  for (const { repo, abs, rel } of found) {
     const visibility = VISIBILITIES.includes(repo.visibility) ? repo.visibility : null;
-    repos.push({ path: rel, ...slugOf(abs), ciOk: hasCiOk(abs), visibility });
+    repos.push({ path: rel, ...slugOf(abs, given), ciOk: hasCiOk(abs), visibility });
   }
   const content = {
     [CHECKLIST]: markdown(repos, lang),

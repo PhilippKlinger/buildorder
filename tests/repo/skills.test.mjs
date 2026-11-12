@@ -100,6 +100,22 @@ test('init pre-approves only exact read-only CLI commands: no git, no write comm
   }
 });
 
+// `sync *` would also allow `sync . --apply`: only the exact read-only call is pre-approved.
+test('sync runs only when the user invokes it and pre-approves only its read-only call', () => {
+  assert.ok(skills().includes('sync'), 'skills/sync/SKILL.md missing');
+  assert.equal(frontmatter(read('sync'))['disable-model-invocation'], 'true');
+  const rules = toolRules('sync');
+  for (const rule of rules) {
+    const m = rule.match(/^(Bash|PowerShell)\((.*)\)$/);
+    if (!m) {
+      assert.ok(['Read', 'Grep', 'Glob', 'AskUserQuestion'].includes(rule), `unexpected tool rule: ${rule}`);
+      continue;
+    }
+    assert.equal(m[2], `node ${CLI} sync .`, `${rule}: only the exact read-only sync call`);
+  }
+  assert.ok(rules.includes(`Bash(node ${CLI} sync .)`) && rules.includes(`PowerShell(node ${CLI} sync .)`));
+});
+
 test('init plans and lists gaps with the pre-approved read-only plan command', () => {
   const text = read('init');
   assert.ok(toolRules('init').includes(`Bash(node ${CLI} plan *)`), 'plan * is pre-approved');
@@ -185,4 +201,23 @@ test('skills are English and hold no personal names', () => {
       }
     });
   }
+});
+
+const normalized = (name) => read(name).replace(/\s+/g, ' ');
+
+test('init asks for the release style of an existing project', () => {
+  assert.match(normalized('init'), /\*\*Existing project:\*\*[^*]*release style \([^)]*never assume/);
+});
+
+test('init phrases data and third-party statements as hints before assess', () => {
+  assert.match(normalized('init'), /Before `assess` ran, .*as hints \("traces of/);
+});
+
+test('init lists the GitHub settings files under the final GitHub step, not under the workspace step', () => {
+  const text = normalized('init');
+  const workspace = text.match(/\*\*Workspace:\*\*(.*?)- \*\*Repo:\*\*/)?.[1] ?? '';
+  const github = text.match(/\*\*GitHub:\*\*(.*?)- \*\*Docs language/)?.[1] ?? '';
+  assert.ok(workspace.length > 0 && github.length > 0, 'plan bullets missing');
+  assert.doesNotMatch(workspace, /github-settings\.md|github-ruleset\.json/);
+  assert.match(github, /github-settings\.md/);
 });

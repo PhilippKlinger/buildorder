@@ -34,7 +34,7 @@ const TEST_DIRS = new Set(['test', 'tests', '__tests__', 'spec', 'e2e']);
 const TEST_FILE = [/\.(test|spec)\.[cm]?[jt]sx?$/, /^test_.+\.py$/, /_test\.(py|go)$/, /^tests\.py$/];
 const TEST_DEPTH = 4;
 
-const BUILDORDER_VERSION = readJson(join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'))?.version ?? null;
+export const BUILDORDER_VERSION = readJson(join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'))?.version ?? null;
 
 const under = (f, folders) => folders.some((p) => f.startsWith(`${p}/`));
 
@@ -52,6 +52,12 @@ function ownCode(dir, nested = []) {
   const hasFiles = walk(dir, CODE_DEPTH, CODE_SKIP)
     .some((f) => !under(f, nested) && CODE_EXT.has(extname(f).toLowerCase()));
   return { stacks, hasStack, hasFiles, isCodeRepo: hasStack || (hasFiles && nested.length === 0) };
+}
+
+/** `{ isCode, stacks }` of one repo folder, as `detect` lists it, without looking at the rest of the workspace. */
+export function repoCode(dir) {
+  const own = ownCode(dir);
+  return { isCode: own.isCodeRepo, stacks: own.stacks.supported };
 }
 
 /** Git repos below `root` (`/`-separated relative paths); the search does not enter a repo it found. */
