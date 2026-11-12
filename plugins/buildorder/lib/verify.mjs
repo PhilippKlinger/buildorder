@@ -1,8 +1,8 @@
 // verify and finalize: check that a scaffolded workspace is complete and consistent, then mark
 // the init as done. Pure reads, except finalize's write of `initPhase`.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { writeJson } from './fsx.mjs';
+import { readJson, writeJson } from './fsx.mjs';
 import { relativeTo } from './paths.mjs';
 import { DOC_MAP } from './scaffold.mjs';
 
@@ -22,12 +22,7 @@ function folder(dir) {
 function readWorkspace(root) {
   const file = join(root, '.claude', 'workspace.json');
   if (!existsSync(file)) return { problem: `no ${WS_REL}` };
-  let ws;
-  try {
-    ws = JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, ''));
-  } catch {
-    return { problem: `${WS_REL} is not valid JSON` };
-  }
+  const ws = readJson(file);
   if (ws === null || typeof ws !== 'object' || Array.isArray(ws)) return { problem: `${WS_REL} is not valid JSON` };
   if (ws.schemaVersion !== 1) return { problem: `${WS_REL}: schemaVersion must be 1` };
   return { ws };
