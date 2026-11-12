@@ -1,0 +1,18 @@
+# Deploy target "container": starts the pushed image on a server over SSH (deployment.yml).
+# Switched on with the repository variable DEPLOY_ENABLED=true, so CI stays green before a server exists.
+deploy:
+  if: github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+  needs: [image]
+  permissions:
+    contents: read
+  uses: $/.github/workflows/deployment.yml
+  with:
+    source_sha: ${{ github.sha }}
+    images: APP_IMAGE=${{ needs.image.outputs.image }}
+  secrets:
+    SSH_HOST: ${{ secrets.SSH_HOST }}
+    SSH_PORT: ${{ secrets.SSH_PORT }}
+    SSH_USER: ${{ secrets.SSH_USER }}
+    SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+    SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+    DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}

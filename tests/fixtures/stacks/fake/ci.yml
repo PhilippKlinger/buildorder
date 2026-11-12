@@ -1,0 +1,26 @@
+# Fake stack module for the standard tests: two jobs that stand in for lint, tests, build and audit.
+lint:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Lint
+      run: echo fake-lint
+
+test:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Test with coverage
+      run: echo fake-test --coverage
+    - name: Build
+      run: echo fake-build
+    - name: Audit dependencies
+      run: echo fake-audit
