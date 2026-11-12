@@ -54,6 +54,12 @@ function ownCode(dir, nested = []) {
   return { stacks, hasStack, hasFiles, isCodeRepo: hasStack || (hasFiles && nested.length === 0) };
 }
 
+/** `{ isCode, stacks }` of one repo folder, as `detect` lists it, without looking at the rest of the workspace. */
+export function repoCode(dir) {
+  const own = ownCode(dir);
+  return { isCode: own.isCodeRepo, stacks: own.stacks.supported };
+}
+
 /** Git repos below `root` (`/`-separated relative paths); the search does not enter a repo it found. */
 function findRepos(root) {
   const found = [];
