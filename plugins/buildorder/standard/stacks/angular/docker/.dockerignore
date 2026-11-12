@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+dist
+.angular
+coverage
+.env
+.env.*
+Dockerfile
+.dockerignore

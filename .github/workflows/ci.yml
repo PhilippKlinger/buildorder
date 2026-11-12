@@ -375,6 +375,60 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
 
+  # AK-2 for angular: `standard --starter` writes the starter and its pipeline into an empty repo, then the
+  # core steps of that pipeline run on it. The commands are those of the module's ci.yml
+  # (tests/lib/stack-angular.test.mjs); Node comes from the written .nvmrc, as in the module.
+  angular-fixture:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Write the starter and its pipeline into an empty repo
+        run: |
+          set -Eeuo pipefail
+          dir="$RUNNER_TEMP/angular app"
+          git init -q -b main "$dir"
+          git -C "$dir" config user.name ci
+          git -C "$dir" config user.email ci
+          node plugins/buildorder/scripts/buildorder.mjs standard "$dir" --stack angular --deploy container --starter --apply
+          git -C "$dir" log --oneline --stat
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ runner.temp }}/angular app/.nvmrc
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm ci
+      - name: Lint
+        working-directory: ${{ runner.temp }}/angular app
+        run: |
+          npm run lint
+          npm run format:check
+      - name: Test with coverage
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm run test:ci
+      - name: Build
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm run build
+      - name: Audit dependencies
+        working-directory: ${{ runner.temp }}/angular app
+        run: npm audit --audit-level=high
+      - name: Build the image
+        working-directory: ${{ runner.temp }}/angular app
+        run: docker build --tag angular-fixture .
+      - name: Scan the image (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: angular-fixture
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
   gitleaks:
     runs-on: ubuntu-latest
     permissions:
@@ -413,7 +467,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [test, validate, pre-commit, zizmor, django-fixture, go-fixture, python-fixture, react-fixture, gitleaks, codeql]
+    needs: [test, validate, pre-commit, zizmor, django-fixture, go-fixture, python-fixture, react-fixture, angular-fixture, gitleaks, codeql]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
