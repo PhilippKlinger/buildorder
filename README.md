@@ -117,8 +117,10 @@ requests and on demand. Its `ci-ok` job is the required check of the ruleset in 
 
 - Stack jobs (Django): `ruff check` and `ruff format --check`, `pytest --cov` against PostgreSQL,
   `manage.py check --deploy` and `collectstatic`, `pip-audit`.
-- gitleaks over the full history, Dependency Review on pull requests, CodeQL for the stack's language and for
-  GitHub Actions, zizmor over the workflows, and the pre-commit hooks.
+- gitleaks over the full history, zizmor over the workflows, and the pre-commit hooks.
+- Dependency Review on pull requests and CodeQL for the stack's language and for GitHub Actions, in public repos
+  only: for a private repo both jobs are left out and recorded as a deviation (see
+  [Limits and safety](#limits-and-safety)).
 - Every action pinned to a full commit SHA; Dependabot keeps the pins and the stack's dependencies current.
 - With the `docker-cicd` module: image build, Trivy scan (CRITICAL and HIGH with a fix available), SPDX SBOM, and
   on `main` a push to GHCR by digest with a build-provenance attestation (public repos). CD for `container` and
