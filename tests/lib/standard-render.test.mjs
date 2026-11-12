@@ -193,3 +193,12 @@ test('generated workflows: least privilege, no persisted credentials, no express
     }
   }
 });
+
+test('a self-repository call `$/` is explained by a comment on the line above (not a typo for `./`)', () => {
+  for (const deploy of ['container', 'webspace']) {
+    const lines = files({ stack: fake(), deploy, skip: new Set() })[CI].split('\n');
+    const at = lines.findIndex((l) => /^\s*uses: \$\//.test(l));
+    assert.ok(at > 0, `${deploy}: the deploy job calls the workflow with $/`);
+    assert.match(lines[at - 1], /^\s*# `\$\/` .*this repository.*2\.336\.0.*not a typo.*`\.\/`/, deploy);
+  }
+});

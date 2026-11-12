@@ -9,17 +9,19 @@ after(cleanup);
 
 // An scp-style remote, assembled so no address-like literal is tracked.
 const SSH_REMOTE = ['git', 'github.com:acme/shop.git'].join('@');
+// Built from char codes: this file stays ASCII (shipped text is English).
+const UMLAUT = new RegExp(`[${String.fromCharCode(0xe4, 0xf6, 0xfc, 0xdf)}]`);
 const read = (dir, rel) => readFileSync(join(dir, ...rel.split('/')), 'utf8');
 
 // A ci.yml with the ci-ok job, as the standard writes it.
 const CI_OK = { '.github/workflows/ci.yml': 'name: ci\non: push\njobs:\n  ci-ok:\n    runs-on: ubuntu-latest\n' };
 
 /** A workspace with one repo `shop app`; `ciOk`: the repo has the ci-ok job; `visibility` goes to scaffold. */
-function workspace(label, remote, { ciOk = true, visibility } = {}) {
+function workspace(label, remote, { ciOk = true, visibility, lang } = {}) {
   const root = tmp(label);
   const repo = codeRepo(null, { 'src/main.ts': 'console.log(1);\n', ...(ciOk ? CI_OK : {}) }, { dir: join(root, 'shop app') });
   if (remote) gitIn(repo, 'remote', 'add', 'origin', remote);
-  assert.equal(cli('scaffold', root, ...(visibility ? ['--visibility', visibility] : [])).status, 0);
+  assert.equal(cli('scaffold', root, ...(lang ? ['--lang', lang] : []), ...(visibility ? ['--visibility', visibility] : [])).status, 0);
   return root;
 }
 
@@ -98,6 +100,29 @@ test('a private repo gets no secret scanning commands, and the reason instead', 
   assert.match(md, /Secret scanning and push protection: left out, a private repo needs GitHub Advanced Security/);
   assert.ok(md.includes('gh api --method PUT repos/acme/shop/vulnerability-alerts'), 'Dependabot alerts stay');
   assert.ok(md.includes('--method POST repos/acme/shop/rulesets --input docs/github-ruleset.json'));
+});
+
+const commandsOf = (md) => md.split('\n').filter((l) => l.trim().startsWith('gh api'));
+function checklistText(label, remote, opts) {
+  const root = workspace(label, remote, opts);
+  checklist(root);
+  return read(root, 'docs/github-settings.md');
+}
+
+test('the checklist follows language.docs: German text with umlauts, the same commands as English', () => {
+  for (const [label, opts] of [['plain', {}], ['no ci-ok', { ciOk: false }], ['private', { visibility: 'private' }]]) {
+    const en = checklistText('github en ' + label, SSH_REMOTE, { ...opts, lang: 'en' });
+    const de = checklistText('github de ' + label, SSH_REMOTE, { ...opts, lang: 'de' });
+    assert.match(de, /^# GitHub-Einstellungen$/m, label);
+    assert.match(de, /^## shop app \(`acme\/shop`\)$/m, label);
+    assert.match(de, /Befehle/, label);
+    assert.doesNotMatch(de, /Written by|Run these commands|Dependabot alerts|Ruleset on/, label);
+    assert.deepEqual(commandsOf(de), commandsOf(en), label + ': commands are not translated');
+  }
+  const loosePrivate = checklistText('github de words', null, { lang: 'de', visibility: 'private', ciOk: false });
+  assert.match(loosePrivate, UMLAUT, 'real umlauts');
+  assert.doesNotMatch(loosePrivate, /fuer|ueber|koennen|waehrend|muessen/i, 'no ae/oe/ue transliteration');
+  assert.match(loosePrivate, /Noch kein GitHub-Remote/);
 });
 
 test('a second run keeps both files as they are', () => {

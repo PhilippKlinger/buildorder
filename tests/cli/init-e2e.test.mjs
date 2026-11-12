@@ -38,11 +38,18 @@ test('new django project in an empty folder: plan, scaffold with git init, start
   for (const [k, v] of [['user.name', 'test'], ['user.email', ['test', 'localhost'].join('@')], ['commit.gpgsign', 'false']]) {
     gitIn(repo, 'config', k, v);
   }
+  assert.deepEqual([wsOf(root).repos[0].isCode, wsOf(root).repos[0].stacks], [false, []], 'the empty repo, as scaffold saw it');
   const applied = json('standard', repo, ...options, '--starter', '--apply');
   // The plan's files, after the starter files that --starter adds in front.
   assert.deepEqual(applied.created.slice(-plan.files.length), plan.files.map((f) => f.path));
   assert.ok(applied.created.includes('manage.py'));
   assert.deepEqual(applied.workspace, { dir: root, recorded: true });
+  // The entry follows the repo: after the starter commit it is a django code repo, not the empty folder of before.
+  const [entry] = wsOf(root).repos;
+  const [found] = json('detect', root).repos;
+  assert.equal(entry.isCode, true);
+  assert.ok(entry.stacks.includes('django'), `stacks: ${entry.stacks}`);
+  assert.deepEqual([entry.isCode, entry.stacks], [found.isCode, found.stacks], 'the same as detect reports');
   assert.equal(ok('plan', repo, ...options, '--gaps').stdout,
     'No gaps: every repo item of the standard is present or deliberately skipped.\n');
 

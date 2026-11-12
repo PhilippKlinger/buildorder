@@ -1,0 +1,27 @@
+{
+  "title": "# GitHub-Einstellungen",
+  "intro": [
+    "> Von Buildorder geschrieben; Buildorder legt nie ein Repo an, pusht nicht und ruft die GitHub-API nicht auf. Führe diese",
+    "> Befehle selbst im Workspace-Root aus, sobald das Repo auf GitHub existiert und `main` gepusht ist. Du brauchst die",
+    "> GitHub CLI, angemeldet mit Admin-Rechten auf dem Repo (`gh auth status`)."
+  ],
+  "noRemote": "Noch kein GitHub-Remote: ersetze `{{slug}}` nach dem ersten Push durch Besitzer und Namen des Repos.",
+  "ruleset": "- [ ] Ruleset für den Standard-Branch: nur Pull Requests, kein Force-Push, kein Löschen, Pflicht-Check `{{check}}`",
+  "looseRuleset": [
+    "- [ ] Ruleset für den Standard-Branch: nur Pull Requests, kein Force-Push, kein Löschen (noch kein Pflicht-Check:",
+    "  die CI des Repos hat noch keinen Job `{{check}}`)"
+  ],
+  "requireLater": "- [ ] Sobald `ci.yml` mit dem Job `{{check}}` auf `main` liegt (die Lückenaufgabe des Standards), mach ihn zur Pflicht: hole die Ruleset-ID aus `gh api repos/{{slug}}/rulesets`, dann",
+  "privateSecrets": [
+    "- Secret Scanning und Push Protection: ausgelassen, ein privates Repo braucht dafür GitHub Advanced Security (Secret",
+    "  Protection); der gitleaks-Job in der CI ist der Schutz."
+  ],
+  "secrets": "- [ ] Secret Scanning und Push Protection",
+  "alerts": "- [ ] Dependabot-Warnungen",
+  "verify": "- [ ] Prüfen: `gh api repos/{{slug}}/rulesets` listet das Ruleset `{{ruleset}}`.",
+  "noRepos": "In `.claude/workspace.json` ist kein Repo eingetragen.",
+  "outro": [
+    "Private Repos: Rulesets brauchen GitHub Pro oder höher, Secret Scanning und Push Protection brauchen GitHub Secret",
+    "Protection. Ohne sie ist der gitleaks-Job in der CI der Schutz."
+  ]
+}

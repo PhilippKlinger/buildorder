@@ -3,7 +3,7 @@
 // the person runs the commands once the repo exists on GitHub (AK-6, K5).
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { maskRemote } from './detect.mjs';
+import { PLUGIN_ROOT, maskRemote } from './detect.mjs';
 import { git } from './git.mjs';
 import { relativeTo } from './paths.mjs';
 import { VISIBILITIES } from './standard.mjs';
@@ -71,62 +71,58 @@ function hasCiOk(abs) {
   });
 }
 
-function rulesetSteps({ slug, ciOk }, block) {
-  if (ciOk) {
-    return [
-      `- [ ] Ruleset on the default branch: pull requests only, no force push, no deletion, required check \`${REQUIRED_CHECK}\``,
-      ...block(`gh api --method POST repos/${slug}/rulesets --input ${RULESET}`),
-    ];
-  }
-  return [
-    '- [ ] Ruleset on the default branch: pull requests only, no force push, no deletion (no required check yet:',
-    `  the repo's CI has no \`${REQUIRED_CHECK}\` job)`,
-    ...block(`gh api --method POST repos/${slug}/rulesets --input ${LOOSE_RULESET}`),
-    `- [ ] Once \`ci.yml\` with the \`${REQUIRED_CHECK}\` job is on \`main\` (the gap task of the standard), require it:`
-      + ` take the ruleset id from \`gh api repos/${slug}/rulesets\`, then`,
-    ...block(`gh api --method PUT repos/${slug}/rulesets/RULESET_ID --input ${RULESET}`),
-  ];
-}
+// The checklist text per docs language (`language.docs` of the workspace): templates/github/<lang>/checklist.json,
+// a string or a list of lines per key. `{{slug}}`, `{{check}}` and `{{ruleset}}` are filled in; the `gh` commands
+// are the same in every language.
+const loadTexts = (lang) => JSON.parse(readFileSync(join(PLUGIN_ROOT, 'templates', 'github', lang, 'checklist.json'), 'utf8'));
+const fill = (v, vals) => (Array.isArray(v) ? v.map((s) => fill(s, vals)) : v.replace(/\{\{(\w+)\}\}/g, (m, key) => vals[key] ?? m));
+const lines = (v) => (Array.isArray(v) ? v : [v]);
 
-function section(repo) {
-  const { path, slug, remote, visibility } = repo;
+function section(repo, tx) {
+  const { path, slug, remote, visibility, ciOk } = repo;
+  const t = (key) => lines(fill(tx[key], { slug, check: REQUIRED_CHECK, ruleset: RULESET_BODY.name }));
   const block = (cmd) => ['  ```', `  ${cmd}`, '  ```'];
+  const ruleset = ciOk
+    ? [...t('ruleset'), ...block(`gh api --method POST repos/${slug}/rulesets --input ${RULESET}`)]
+    : [
+      ...t('looseRuleset'),
+      ...block(`gh api --method POST repos/${slug}/rulesets --input ${LOOSE_RULESET}`),
+      ...t('requireLater'),
+      ...block(`gh api --method PUT repos/${slug}/rulesets/RULESET_ID --input ${RULESET}`),
+    ];
   const secrets = visibility === 'private'
-    ? ['- Secret scanning and push protection: left out, a private repo needs GitHub Advanced Security (Secret',
-      '  Protection) for them; the gitleaks job in CI is the protection.']
-    : ['- [ ] Secret scanning and push protection',
+    ? t('privateSecrets')
+    : [...t('secrets'),
       ...block(`gh api --method PATCH repos/${slug} -f "security_and_analysis[secret_scanning][status]=enabled"`
         + ' -f "security_and_analysis[secret_scanning_push_protection][status]=enabled"')];
   return [
     `## ${path} (\`${slug}\`)`,
     '',
-    ...(remote ? [] : [`No GitHub remote yet: after the first push, replace \`${slug}\` with the repo's owner and name.`, '']),
-    ...rulesetSteps(repo, block),
+    ...(remote ? [] : [...t('noRemote'), '']),
+    ...ruleset,
     ...secrets,
-    '- [ ] Dependabot alerts',
+    ...t('alerts'),
     ...block(`gh api --method PUT repos/${slug}/vulnerability-alerts`),
-    `- [ ] Check: \`gh api repos/${slug}/rulesets\` lists the ruleset \`${RULESET_BODY.name}\`.`,
+    ...t('verify'),
     '',
   ];
 }
 
-function markdown(repos) {
+function markdown(repos, lang) {
+  const tx = loadTexts(lang);
   return [
-    '# GitHub settings',
+    ...lines(tx.title),
     '',
-    '> Written by Buildorder, which never creates a repo, pushes or calls the GitHub API. Run these commands yourself',
-    '> from the workspace root, once the repo exists on GitHub and `main` is pushed. They need the GitHub CLI, logged in',
-    '> with admin rights on the repo (`gh auth status`).',
+    ...tx.intro,
     '',
-    ...(repos.length ? repos.flatMap(section) : ['No repo is listed in `.claude/workspace.json`.', '']),
-    'Private repos: rulesets need GitHub Pro or higher, secret scanning and push protection need GitHub Secret',
-    'Protection. Without them, the gitleaks job in CI is the protection.',
+    ...(repos.length ? repos.flatMap((r) => section(r, tx)) : [tx.noRepos, '']),
+    ...tx.outro,
     '',
   ].join('\n');
 }
 
 /**
- * Writes the checklist and the ruleset body (plus one without required checks when a repo has no `ci-ok`
+ * Writes the checklist (in the workspace's `language.docs`, `de` or else English) and the ruleset body (plus one without required checks when a repo has no `ci-ok`
  * job yet) into the workspace that encloses `dir`, never overwriting:
  * `{ ok, dir, files: [{ path, state: created | exists }], repos: [{ path, slug, remote, ciOk, visibility }] }`.
  * `visibility` comes from the repo entry (null when unknown); a private repo gets no secret scanning commands.
@@ -136,6 +132,8 @@ export function githubChecklist(dir) {
   const root = findWorkspaceRoot(dir);
   const ws = root ? loadWorkspace(root) : null;
   if (!ws) throw new Error(`not inside a Buildorder workspace: ${resolve(dir)}`);
+  // The docs language of the workspace; anything but `de` (missing, unknown) keeps the English text.
+  const lang = ws.language?.docs === 'de' ? 'de' : 'en';
   const repos = [];
   for (const repo of Array.isArray(ws.repos) ? ws.repos : []) {
     if (typeof repo?.path !== 'string') continue;
@@ -146,7 +144,7 @@ export function githubChecklist(dir) {
     repos.push({ path: rel, ...slugOf(abs), ciOk: hasCiOk(abs), visibility });
   }
   const content = {
-    [CHECKLIST]: markdown(repos),
+    [CHECKLIST]: markdown(repos, lang),
     [RULESET]: JSON.stringify(RULESET_BODY, null, 2) + '\n',
     ...(repos.some((r) => !r.ciOk) ? { [LOOSE_RULESET]: JSON.stringify(LOOSE_BODY, null, 2) + '\n' } : {}),
   };

@@ -1,0 +1,27 @@
+{
+  "title": "# GitHub settings",
+  "intro": [
+    "> Written by Buildorder, which never creates a repo, pushes or calls the GitHub API. Run these commands yourself",
+    "> from the workspace root, once the repo exists on GitHub and `main` is pushed. They need the GitHub CLI, logged in",
+    "> with admin rights on the repo (`gh auth status`)."
+  ],
+  "noRemote": "No GitHub remote yet: after the first push, replace `{{slug}}` with the repo's owner and name.",
+  "ruleset": "- [ ] Ruleset on the default branch: pull requests only, no force push, no deletion, required check `{{check}}`",
+  "looseRuleset": [
+    "- [ ] Ruleset on the default branch: pull requests only, no force push, no deletion (no required check yet:",
+    "  the repo's CI has no `{{check}}` job)"
+  ],
+  "requireLater": "- [ ] Once `ci.yml` with the `{{check}}` job is on `main` (the gap task of the standard), require it: take the ruleset id from `gh api repos/{{slug}}/rulesets`, then",
+  "privateSecrets": [
+    "- Secret scanning and push protection: left out, a private repo needs GitHub Advanced Security (Secret",
+    "  Protection) for them; the gitleaks job in CI is the protection."
+  ],
+  "secrets": "- [ ] Secret scanning and push protection",
+  "alerts": "- [ ] Dependabot alerts",
+  "verify": "- [ ] Check: `gh api repos/{{slug}}/rulesets` lists the ruleset `{{ruleset}}`.",
+  "noRepos": "No repo is listed in `.claude/workspace.json`.",
+  "outro": [
+    "Private repos: rulesets need GitHub Pro or higher, secret scanning and push protection need GitHub Secret",
+    "Protection. Without them, the gitleaks job in CI is the protection."
+  ]
+}
