@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
+.env.*
 .coverage
 coverage.xml
 htmlcov/

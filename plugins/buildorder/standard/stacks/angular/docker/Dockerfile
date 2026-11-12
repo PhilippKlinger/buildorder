@@ -1,7 +1,7 @@
 # Angular image: the app is built in a Node stage (same version as CI, see .nvmrc), then served as static files by
 # unprivileged Nginx. Both base images are pinned by tag and digest; Dependabot keeps both current.
 # The site lives in /usr/share/nginx/html, which the webspace deployment also reads.
-FROM node:24.22.2-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d AS build
+FROM node:24.22.1-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci

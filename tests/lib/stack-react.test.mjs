@@ -83,11 +83,13 @@ test('react image: Nginx unprivileged pinned by digest, Node builder pinned, non
   assert.match(froms[1], /^nginxinc\/nginx-unprivileged:\d+\.\d+\.\d+-alpine[\d.]+@sha256:[0-9a-f]{64}$/, froms[1]);
   assert.match(dockerfile, /^RUN npm ci$/m);
   assert.match(dockerfile, /^COPY --from=build \/app\/dist \/usr\/share\/nginx\/html$/m);
-  assert.match(dockerfile, /^USER nginx$/m);
+  assert.match(dockerfile, /^USER 101$/m);
+  assert.match(dockerfile, /location \^~ \/\.well-known\/ \{/, 'dotfile deny keeps /.well-known/ reachable');
+  assert.match(dockerfile, /location ~ \/\\. \{\n\s+deny all;/);
   assert.match(dockerfile, /listen 8080;/);
   assert.match(dockerfile, /^EXPOSE 8080$/m);
   const runtime = dockerfile.split(/^FROM /m)[2];
-  assert.ok(runtime.indexOf('apk upgrade') < runtime.lastIndexOf('USER nginx'), 'root work happens before USER nginx');
+  assert.ok(runtime.indexOf('apk upgrade') < runtime.lastIndexOf('USER 101'), 'root work happens before USER 101');
   for (const header of ['Content-Security-Policy', 'X-Content-Type-Options', 'Strict-Transport-Security']) {
     assert.match(dockerfile, new RegExp(`add_header ${header} `), header);
   }
@@ -116,6 +118,12 @@ test('react starter: every dependency is pinned exactly and the lockfile exists'
 
 test('react starter: .gitattributes forces LF', () => {
   assert.match(starterFile('.gitattributes'), /^\* text=auto eol=lf$/m);
+});
+
+test('react starter: .gitignore keeps .env files out of git', () => {
+  const ignore = starterFile('.gitignore');
+  assert.match(ignore, /^\.env$/m);
+  assert.match(ignore, /^\.env\.\*$/m);
 });
 
 test('react module and starter files trip no secret pattern of the secret guard', () => {

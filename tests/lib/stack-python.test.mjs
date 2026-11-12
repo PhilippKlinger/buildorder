@@ -101,6 +101,12 @@ test('python starter: .gitattributes forces LF', () => {
   assert.match(file.content, /^\* text=auto eol=lf$/m);
 });
 
+test('python starter: .gitignore keeps .env files out of git', () => {
+  const ignore = python().starter.find((f) => f.path === '.gitignore').content;
+  assert.match(ignore, /^\.env$/m);
+  assert.match(ignore, /^\.env\.\*$/m);
+});
+
 test('python module and starter files trip no secret pattern of the secret guard', () => {
   let lines = 0;
   for (const rel of walk(DIR)) {

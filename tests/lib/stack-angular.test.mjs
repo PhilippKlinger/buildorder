@@ -75,6 +75,7 @@ test('angular image: Node builder and unprivileged Nginx pinned by digest, same 
   assert.match(froms[0], /^node:\d+\.\d+\.\d+-[a-z]+-slim@sha256:[0-9a-f]{64}$/);
   assert.match(froms[1], /^nginxinc\/nginx-unprivileged:\d+\.\d+\.\d+-alpine[\d.]*@sha256:[0-9a-f]{64}$/);
   assert.equal(froms[0].match(/^node:(\d+\.\d+\.\d+)-/)[1], starterFile('.nvmrc').trim(), 'builder Node = .nvmrc');
+  assert.equal(starterFile('.nvmrc'), loadStack('react').starter.find((f) => f.path === '.nvmrc').content, 'same Node as the react module');
   assert.match(dockerfile, /^RUN npm ci$/m);
   assert.match(dockerfile, /^COPY --from=build \/app\/dist\/app\/browser \/usr\/share\/nginx\/html$/m);
   assert.match(dockerfile, /^COPY nginx\.conf \/etc\/nginx\/conf\.d\/default\.conf$/m);
@@ -88,6 +89,8 @@ test('angular image: Node builder and unprivileged Nginx pinned by digest, same 
   const nginx = stack.docker.find((f) => f.path === 'nginx.conf').content;
   assert.match(nginx, /try_files \$uri \$uri\/ \/index\.html;/, 'single-page fallback');
   assert.match(nginx, /listen 8080;/);
+  assert.match(nginx, /location \^~ \/\.well-known\/ \{/, 'dotfile deny keeps /.well-known/ reachable');
+  assert.match(nginx, /location ~ \/\\. \{\n\s+deny all;/);
 });
 
 test('angular starter: every dependency is pinned exactly and the lockfile exists', () => {
@@ -111,6 +114,12 @@ test('angular starter: .gitattributes forces LF', () => {
   assert.match(starterFile('.prettierrc'), /"endOfLine": "lf"/);
   // The pipeline files that buildorder writes next to the app are not the app's formatting concern.
   assert.match(starterFile('.prettierignore'), /^\/\.github$/m);
+});
+
+test('angular starter: .gitignore keeps .env files out of git', () => {
+  const ignore = starterFile('.gitignore');
+  assert.match(ignore, /^\.env$/m);
+  assert.match(ignore, /^\.env\.\*$/m);
 });
 
 test('angular module and starter files trip no secret pattern of the secret guard', () => {
