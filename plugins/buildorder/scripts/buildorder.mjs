@@ -6,6 +6,8 @@
 //   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]...
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
+//   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
+//                                [--visibility public|private] [--without <id>=<reason>]... [--apply]
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
 // problems (verify, finalize) prints its JSON report and exits with 1 as well.
@@ -14,6 +16,7 @@ import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
 import { nest } from '../lib/nest.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
+import { standard } from '../lib/standard.mjs';
 import { finalize, verify } from '../lib/verify.mjs';
 
 // `args`: how many arguments a command takes after [dir]; `options`: node:util parseArgs options;
@@ -28,6 +31,17 @@ const COMMANDS = {
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
   finalize: { args: 0, check: true, run: (dir) => finalize(dir) },
+  standard: {
+    args: 0,
+    options: {
+      stack: { type: 'string' },
+      deploy: { type: 'string' },
+      visibility: { type: 'string' },
+      without: { type: 'string', multiple: true },
+      apply: { type: 'boolean' },
+    },
+    run: (dir, _args, opts) => standard(dir, opts),
+  },
 };
 const USAGE = `usage: buildorder.mjs <command> [dir] (commands: ${Object.keys(COMMANDS).join(', ')})`;
 

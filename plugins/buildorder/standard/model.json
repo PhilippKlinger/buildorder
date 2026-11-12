@@ -37,7 +37,7 @@
     },
     {
       "id": "pre-commit", "class": "mandatory", "provider": "core", "where": "repo", "summary": "Pre-commit hooks and the same hooks in CI",
-      "check": { "files": [".pre-commit-config.yaml"], "workflow": ["pre-commit run"] }
+      "check": { "files": [".pre-commit-config.yaml"], "workflow": ["pre-commit(==[0-9.]+)? run"] }
     },
     { "id": "rulesets", "class": "mandatory", "provider": "core", "where": "github", "summary": "Rulesets: pull requests, no force push, required checks" },
     { "id": "guardrail-hooks", "class": "mandatory", "provider": "core", "where": "plugin", "summary": "Guardrail hooks" },

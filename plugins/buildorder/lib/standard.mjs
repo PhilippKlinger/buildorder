@@ -1,14 +1,26 @@
 // standard: the standard model (mandatory / standard / option) and the repo files that set it up.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Without --apply everything here only reads; --apply writes missing files and makes one commit.
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { detectDeploy } from './deploy.mjs';
 import { PLUGIN_ROOT } from './detect.mjs';
-import { readJson, walk } from './fsx.mjs';
+import { readJson, walk, writeJson } from './fsx.mjs';
+import { gitResult } from './git.mjs';
+import { relativeTo } from './paths.mjs';
+import { detectStacks } from './stack.mjs';
+import { findWorkspaceRoot, loadWorkspace } from './workspace.mjs';
 
 export const STANDARD_DIR = join(PLUGIN_ROOT, 'standard');
 /** Where the stack modules live (`<id>/stack.json`, `ci.yml`, ...); see standard/README.md. */
 export const STACKS_DIR = join(STANDARD_DIR, 'stacks');
 const TEMPLATES = join(PLUGIN_ROOT, 'templates', 'repo');
 const STACK_ID = /^[a-z][a-z0-9-]{0,31}$/;
+// Detected stacks that a stack module can cover (docker, postgres and github-actions are no stacks of their own).
+const STACK_IDS = ['angular', 'react', 'django', 'python', 'go'];
+export const DEPLOY_TARGETS = ['container', 'webspace', 'paas', 'none'];
+export const VISIBILITIES = ['public', 'private'];
+const PRIVATE_REASON = 'private repo: needs a paid GitHub product (GitHub Code Security); free replacement after 1.0';
+const COMMIT_MESSAGE = 'ci: add CI/CD files of the buildorder standard';
 
 // CD variants of docker-cicd that write files: the deploy job for ci.yml and the workflow it calls.
 const CD = {
@@ -155,4 +167,233 @@ export function render({ stack, deploy, skip }) {
   files.push({ path: '.pre-commit-config.yaml', content: preCommit(stack) });
   if (sel.image) files.push(...stack.docker);
   return files;
+}
+
+// --- plan and apply -----------------------------------------------------------------------------
+
+function repoFolder(dir) {
+  const root = resolve(dir);
+  let isDir = false;
+  try {
+    isDir = statSync(root).isDirectory();
+  } catch { /* missing */ }
+  if (!isDir) throw new Error(`not a folder: ${root}`);
+  if (!existsSync(join(root, '.git'))) throw new Error(`not a git repo: ${root}`);
+  return root;
+}
+
+/** The first detected stack a module could cover, else the first unsupported one, else null. */
+function defaultStack(root) {
+  const { supported, unsupported } = detectStacks(root);
+  return supported.find((s) => STACK_IDS.includes(s)) ?? unsupported[0] ?? null;
+}
+
+/** The detected deploy target; without evidence nothing is deployed ('none'). */
+function defaultDeploy(root) {
+  const { target } = detectDeploy(root);
+  return DEPLOY_TARGETS.includes(target) ? target : 'none';
+}
+
+/**
+ * What the options select: the stack module, the deploy target and the skipped items with their
+ * reason. `deviations` are the skips a person decided (deselection, private repo); a deploy that
+ * falls away with the image or by its target is a consequence, not a deviation.
+ */
+function selection(root, model, { stack, deploy, visibility = 'public', without }, stacksDir) {
+  if (deploy !== undefined && !DEPLOY_TARGETS.includes(deploy)) {
+    throw new Error(`--deploy must be one of ${DEPLOY_TARGETS.join(', ')}`);
+  }
+  if (!VISIBILITIES.includes(visibility)) throw new Error(`--visibility must be one of ${VISIBILITIES.join(', ')}`);
+  if (stack !== undefined && !STACK_ID.test(stack)) {
+    throw new Error(`invalid --stack '${stack}': lowercase letters, digits and -, starting with a letter`);
+  }
+  const deselected = deselections(model, without);
+  const stackId = stack ?? defaultStack(root);
+  const target = deploy ?? defaultDeploy(root);
+
+  const skips = new Map();
+  const deviations = [];
+  for (const item of model.items.filter((i) => i.where === 'repo')) {
+    let reason = deselected.get(item.id);
+    if (!reason && visibility === 'private' && item.paidOnPrivate) reason = PRIVATE_REASON;
+    if (!reason) continue;
+    skips.set(item.id, reason);
+    deviations.push({ id: item.id, class: item.class, reason });
+  }
+  if (!skips.has('deploy')) {
+    if (skips.has('container-image')) skips.set('deploy', 'needs container-image, which is deselected');
+    else if (target === 'none') skips.set('deploy', 'deploy target none');
+    else if (target === 'paas') skips.set('deploy', 'deploy target paas: the provider deploys, no CD file');
+  }
+  return {
+    stackId,
+    stack: stackId ? loadStack(stackId, stacksDir) : null,
+    deploy: target,
+    visibility,
+    skips,
+    skip: new Set(skips.keys()),
+    deviations,
+  };
+}
+
+/** All workflow files of the repo as one text ('' without any). */
+function workflowText(root) {
+  const dir = join(root, '.github', 'workflows');
+  let names = [];
+  try {
+    names = readdirSync(dir).filter((n) => /\.ya?ml$/.test(n)).sort();
+  } catch { /* no workflows */ }
+  return names.map((n) => readText(join(dir, n)) ?? '').join('\n');
+}
+
+const USES = /^\s*(?:-\s+)?uses:\s*["']?([^\s"'#]+)/gm;
+
+/** Workflows exist and every remote `uses:` is pinned to a full commit SHA. */
+function allPinned(text) {
+  const refs = [...text.matchAll(USES)].map((m) => m[1]).filter((u) => !/^(\.\/|\$\/|docker:\/\/)/.test(u));
+  return text.trim() !== '' && refs.every((u) => /@[0-9a-f]{40}$/.test(u));
+}
+
+function passes(root, check, workflows) {
+  if (!check) return false;
+  if (check.files && !check.files.some((f) => existsSync(join(root, ...f.split('/'))))) return false;
+  if (check.workflow && !check.workflow.every((p) => new RegExp(p).test(workflows))) return false;
+  if (check.pins && !allPinned(workflows)) return false;
+  return true;
+}
+
+/** How an item is checked: the model's check, the stack module's pattern, or the CD workflow file. */
+function checkFor(item, sel) {
+  if (item.provider === 'stack') {
+    const pattern = sel.stack?.provides?.[item.id];
+    return pattern ? { workflow: [pattern] } : null;
+  }
+  if (item.id === 'deploy') {
+    const cd = CD[sel.deploy];
+    return cd ? { files: [`.github/workflows/${cd.workflow}`] } : null;
+  }
+  return item.check ?? null;
+}
+
+const stackGap = (sel) => (sel.stackId ? `no stack module for '${sel.stackId}'` : 'no stack detected');
+
+/** Why a missing item cannot be written here, or null when the standard writes it. */
+function missingReason(item, sel) {
+  if (sel.stack) return null;
+  if (item.provider === 'stack') return stackGap(sel);
+  if (item.provider === 'docker-cicd') return 'needs a stack module (Dockerfile)';
+  return null;
+}
+
+function itemsOf(root, model, sel) {
+  const workflows = workflowText(root);
+  return model.items.filter((i) => i.where === 'repo').map((item) => {
+    const base = { id: item.id, class: item.class, provider: item.provider };
+    if (sel.skips.has(item.id)) return { ...base, state: 'skipped', reason: sel.skips.get(item.id) };
+    if (passes(root, checkFor(item, sel), workflows)) return { ...base, state: 'present' };
+    const reason = missingReason(item, sel);
+    return reason ? { ...base, state: 'missing', reason } : { ...base, state: 'missing' };
+  });
+}
+
+function notesOf(sel, { image, cd }) {
+  const notes = [];
+  if (!sel.stack) {
+    notes.push(`${stackGap(sel)}: lint, tests with coverage, build and dependency audit are not set up; `
+      + 'add them to ci.yml by hand');
+  }
+  if (cd?.workflow === 'deployment.yml') {
+    notes.push('deploy target container: add docker-compose.prod.yaml (it reads APP_IMAGE), then set the variable '
+      + 'DEPLOY_ENABLED=true and the secrets listed in .github/workflows/deployment.yml');
+  }
+  if (cd?.workflow === 'deployment-webspace.yml') {
+    notes.push('deploy target webspace: the image holds the site in /usr/share/nginx/html with an .htaccess; then set '
+      + 'the variable DEPLOY_ENABLED=true and the secrets listed in .github/workflows/deployment-webspace.yml');
+  }
+  if (sel.deploy === 'paas' && image && !sel.deviations.some((d) => d.id === 'deploy')) {
+    notes.push("deploy target paas: connect the repo in the provider's dashboard; it builds and deploys from main, "
+      + 'so no CD file is written');
+  }
+  if (sel.visibility === 'private' && image) {
+    notes.push('private repo: the build-provenance attestation step runs only in public repos '
+      + '(private ones need GitHub Enterprise Cloud)');
+  }
+  notes.push('pre-commit hooks locally, once per clone: pipx install pre-commit && pre-commit install');
+  return notes;
+}
+
+function report(root, model, sel) {
+  const { image, cd } = parts(sel);
+  return {
+    stack: { id: sel.stackId, module: Boolean(sel.stack) },
+    deploy: sel.deploy,
+    visibility: sel.visibility,
+    modules: [...(sel.stack ? [sel.stack.id] : []), ...(image ? ['docker-cicd'] : [])],
+    items: itemsOf(root, model, sel),
+    files: render(sel).map(({ path }) => ({ path, state: existsSync(join(root, ...path.split('/'))) ? 'exists' : 'create' })),
+    deviations: sel.deviations,
+    notes: notesOf(sel, { image, cd }),
+  };
+}
+
+const firstLine = (text) => text.split('\n').find((l) => l.trim()) ?? 'unknown error';
+
+/** Stages and commits exactly `files` (other staged changes stay staged); returns the new HEAD. */
+function commitFiles(root, files) {
+  const add = gitResult(root, ['add', '--', ...files]);
+  if (!add.ok) throw new Error(`git add failed: ${firstLine(add.stderr)}`);
+  const commit = gitResult(root, ['commit', '-q', '-m', COMMIT_MESSAGE, '--', ...files]);
+  if (!commit.ok) throw new Error(`git commit failed: ${firstLine(commit.stderr)}`);
+  return gitResult(root, ['rev-parse', 'HEAD']).stdout;
+}
+
+/** Records `standards` on the repo's entry in the enclosing workspace.json: `{ dir, recorded }`, or null. */
+function record(root, standards) {
+  const wsRoot = findWorkspaceRoot(root);
+  const ws = wsRoot ? loadWorkspace(wsRoot) : null;
+  if (!ws) return null;
+  const rel = relativeTo(root, wsRoot);
+  const entry = (Array.isArray(ws.repos) ? ws.repos : [])
+    .find((r) => typeof r?.path === 'string' && relativeTo(resolve(wsRoot, r.path), wsRoot) === rel);
+  if (!entry) return { dir: wsRoot, recorded: false };
+  entry.standards = standards;
+  writeJson(join(wsRoot, '.claude', 'workspace.json'), ws);
+  return { dir: wsRoot, recorded: true };
+}
+
+/**
+ * The standard for the code repo `dir`. Options: `stack` (default: detected), `deploy`
+ * (container | webspace | paas | none; default: detected, else none), `visibility` (public | private;
+ * default public), `without` (['<id>=<reason>']), `apply`. `stacksDir` replaces the stack modules folder.
+ *
+ * Without `apply` it only reads and returns the plan: items with class and state (present | missing |
+ * skipped), the files to write (create | exists), deviations and notes. For an existing project
+ * this plan is the gap list. With `apply` it writes the missing files (never overwrites), commits
+ * them in one commit (no push), records `standards` in the enclosing workspace.json and returns the
+ * plan's files with `created`, `skipped`, `commit` and `workspace`; `items` show the state afterwards.
+ * Throws before writing anything when an option is invalid or `dir` is no git repo.
+ */
+export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
+  const root = repoFolder(dir);
+  const model = loadModel();
+  const sel = selection(root, model, opts, stacksDir);
+  const plan = report(root, model, sel);
+  if (!opts.apply) return { ok: true, repo: root, applied: false, ...plan };
+
+  const created = [];
+  const skipped = [];
+  for (const { path, content } of render(sel)) {
+    const abs = join(root, ...path.split('/'));
+    if (existsSync(abs)) {
+      skipped.push(path);
+      continue;
+    }
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, { flag: 'wx' });
+    created.push(path);
+  }
+  const commit = created.length ? commitFiles(root, created) : null;
+  const workspace = record(root, { modules: plan.modules, deviations: sel.deviations });
+  const after = report(root, model, sel);
+  return { ok: true, repo: root, applied: true, ...after, files: plan.files, created, skipped, commit, workspace };
 }
