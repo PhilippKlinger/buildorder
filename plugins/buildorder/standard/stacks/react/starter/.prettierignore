@@ -1,3 +1,4 @@
 dist
 coverage
+/.github
 package-lock.json

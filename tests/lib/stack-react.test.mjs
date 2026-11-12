@@ -95,6 +95,10 @@ test('react image: Nginx unprivileged pinned by digest, Node builder pinned, non
   assert.match(starterFile('public/.htaccess'), /Content-Security-Policy/);
 });
 
+test('react starter: prettier ignores the pipeline files that buildorder writes next to the app', () => {
+  assert.match(starterFile('.prettierignore'), /^\/\.github$/m);
+});
+
 test('react starter: every dependency is pinned exactly and the lockfile exists', () => {
   const pkg = JSON.parse(starterFile('package.json'));
   const deps = { ...pkg.dependencies, ...pkg.devDependencies };
