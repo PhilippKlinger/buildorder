@@ -177,12 +177,15 @@ export function render({ stack, deploy, skip }) {
 
 // --- plan and apply -----------------------------------------------------------------------------
 
-function repoFolder(dir) {
+/** The repo root; a plan (`apply` false) may name a folder that does not exist yet (a new project). */
+function repoFolder(dir, { apply } = {}) {
   const root = resolve(dir);
   let isDir = false;
   try {
     isDir = statSync(root).isDirectory();
-  } catch { /* missing */ }
+  } catch {
+    if (!apply && !existsSync(root)) return root; // planned like an empty repo; nothing is read or written
+  }
   if (!isDir) throw new Error(`not a folder: ${root}`);
   if (!existsSync(join(root, '.git'))) throw new Error(`not a git repo: ${root}`);
   return root;
@@ -388,13 +391,14 @@ function record(root, standards) {
  *
  * Without `apply` it only reads and returns the plan: items with class and state (present | missing |
  * skipped), the files to write (create | exists), deviations and notes. For an existing project
- * this plan is the gap list. With `apply` it writes the missing files (never overwrites), commits
+ * this plan is the gap list; a folder that does not exist yet is planned as an empty repo (the confirmation
+ * of a new project, before `git init`). With `apply` it writes the missing files (never overwrites), commits
  * them in one commit (no push), records `standards` in the enclosing workspace.json and returns the
  * plan's files with `created`, `skipped`, `commit` and `workspace`; `items` show the state afterwards.
  * Throws before writing anything when an option is invalid or `dir` is no git repo.
  */
 export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
-  const root = repoFolder(dir);
+  const root = repoFolder(dir, opts);
   const model = loadModel();
   const sel = selection(root, model, opts, stacksDir);
   const plan = report(root, model, sel);

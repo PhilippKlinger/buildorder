@@ -1,5 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, gitIn, tmp } from '../helpers/cli.mjs';
 
@@ -99,4 +100,23 @@ test('invalid options and folders fail with one message and change nothing', () 
   const notRepo = cli('standard', tmp('standard not repo'));
   assert.equal(notRepo.status, 1);
   assert.match(notRepo.stderr, /^buildorder: not a git repo: /);
+});
+
+test('the plan for a repo folder that does not exist yet lists every file to create and creates nothing', () => {
+  const dir = join(tmp('standard planned'), 'new app');
+  const out = standard(dir, '--stack', 'django', '--deploy', 'container', '--starter');
+  assert.equal(out.applied, false);
+  assert.equal(out.repo, dir);
+  assert.deepEqual(out.modules, ['django', 'docker-cicd']);
+  assert.ok(out.files.length > CORE_FILES.length);
+  for (const path of [...CORE_FILES, 'manage.py', 'Dockerfile']) {
+    assert.deepEqual(out.files.find((f) => f.path === path), { path, state: 'create' }, path);
+  }
+  assert.ok(out.items.every((i) => i.state === 'missing'));
+  assert.equal(existsSync(dir), false, 'a plan creates nothing');
+
+  const apply = cli('standard', dir, '--stack', 'django', '--deploy', 'container', '--starter', '--apply');
+  assert.equal(apply.status, 1);
+  assert.match(apply.stderr, /^buildorder: not a folder: /, '--apply still needs the git repo');
+  assert.equal(existsSync(dir), false);
 });
