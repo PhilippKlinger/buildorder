@@ -65,8 +65,10 @@ If the start text or notes contradict the finding, ask and name the evidence; ne
 New project: the repo folder is the workspace folder name without a `-workspace` suffix. Docs language: suggest
 the language the user writes in (`en` or `de`; others get `en`).
 
-Run the plan: `standard "<repo>" --stack <id> --deploy <target> --visibility <v> [--without <id>=<reason>]...`,
+Run the plan: `standard "<repo>" [--stack <id>] --deploy <target> --visibility <v> [--without <id>=<reason>]...`,
 for a new project with `django` also `--starter` (a repo folder that does not exist yet is planned as empty).
+Pass `--stack` only with a stack that has a module (today `django`), never another entry of `stacks` such as
+`github-actions`; otherwise leave it out (for an existing repo, `standard` picks the detected stack itself).
 Show compactly:
 - **Workspace:** `CLAUDE.md`, `.claude/workspace.json`, the six doc-map files, `docs/github-settings.md`,
   `docs/github-ruleset.json`; for an existing project also the audit file in `docs/audits/`.
