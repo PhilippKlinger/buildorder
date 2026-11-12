@@ -59,6 +59,13 @@ test('frontmatter values are valid YAML plain scalars or quoted', () => {
   }
 });
 
+// The plugin may be installed user-wide: the model must not pick these skills in other projects.
+test('workflow and module skill descriptions limit them to a Buildorder workspace', () => {
+  for (const name of [...WORKFLOW, ...MODULE]) {
+    assert.match(frontmatter(read(name)).description, /\bUse only (?:[^.]* )?inside a Buildorder workspace\./, name);
+  }
+});
+
 test('workflow and module skills stay automatically invocable', () => {
   for (const name of [...WORKFLOW, ...MODULE]) {
     assert.doesNotMatch(read(name), /^disable-model-invocation:/m, name);
