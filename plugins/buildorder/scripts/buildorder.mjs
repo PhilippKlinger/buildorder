@@ -9,6 +9,7 @@
 //   node buildorder.mjs finalize [dir]
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--apply]
+//   node buildorder.mjs plan [repo] [same options as standard, without --apply]   (read-only)
 //
 // Errors go to stderr as one line `buildorder: <message>` with exit code 1. A check that finds
 // problems (verify, finalize) prints its JSON report and exits with 1 as well.
@@ -42,6 +43,17 @@ const COMMANDS = {
       visibility: { type: 'string' },
       without: { type: 'string', multiple: true },
       apply: { type: 'boolean' },
+    },
+    run: (dir, _args, opts) => standard(dir, opts),
+  },
+  // The read-only plan of `standard`: no --apply option, so strict parsing refuses it and skills can pre-approve it.
+  plan: {
+    args: 0,
+    options: {
+      stack: { type: 'string' },
+      deploy: { type: 'string' },
+      visibility: { type: 'string' },
+      without: { type: 'string', multiple: true },
     },
     run: (dir, _args, opts) => standard(dir, opts),
   },
