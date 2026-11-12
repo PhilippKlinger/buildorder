@@ -6,7 +6,8 @@ import { walk } from '../../plugins/buildorder/lib/fsx.mjs';
 import { scanLine } from '../../plugins/buildorder/lib/secrets.mjs';
 import { STACKS_DIR, loadModel, loadStack, render } from '../../plugins/buildorder/lib/standard.mjs';
 import { cleanup, cli, codeRepo, gitIn, gitInit, tmp } from '../helpers/cli.mjs';
-import { jobIds, jobText, needsOf } from '../helpers/standard.mjs';
+import { repoRoot } from '../helpers/repo.mjs';
+import { jobIds, jobText, needsOf, runLines } from '../helpers/standard.mjs';
 
 after(cleanup);
 
@@ -152,4 +153,24 @@ test('--apply --starter --stack django in an empty repo writes the starter and t
     ['lint', 'test', 'build', 'audit', 'image', 'deploy', 'ci-ok']);
   // The written project is a Django project for detect as well.
   assert.deepEqual(standard(dir).stack, { id: 'django', module: true });
+});
+
+test('the django fixture job in the repo CI runs the core commands of the module on the starter (AK-2)', () => {
+  const own = readFileSync(join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
+  const job = jobText(own, 'django-fixture');
+  assert.ok(job, 'job django-fixture in .github/workflows/ci.yml');
+  assert.ok(needsOf(own, 'ci-ok').includes('django-fixture'), 'ci-ok needs the fixture job');
+  assert.match(job, /^ {4}runs-on: ubuntu-latest$/m, 'Linux only: service containers (K3)');
+  assert.match(job, /standard "\$dir" --stack django --deploy container --starter --apply/);
+  assert.match(job, /docker build /);
+
+  // Same commands, PostgreSQL image and Python as the module's ci.yml, so the fixture proves what users get.
+  const stack = django();
+  const fixture = new Set(runLines(job).map((l) => l.trim()));
+  const core = runLines(stack.ci).map((l) => l.trim()).filter((l) => l && !/pip install/.test(l));
+  assert.ok(core.length >= 8, core.join('\n'));
+  for (const line of core) assert.ok(fixture.has(line), `fixture job runs: ${line}`);
+  for (const pattern of [/image: postgres:\S+/, /python-version: "[^"]+"/, /DATABASE_URL: \S+/]) {
+    assert.ok(job.includes(stack.ci.match(pattern)[0]), String(pattern));
+  }
 });

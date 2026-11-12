@@ -1,9 +1,23 @@
 // Helpers for the standard tests: the fake stack module and a small reader for generated workflows.
 import { join } from 'node:path';
+import { loadStack } from '../../plugins/buildorder/lib/standard.mjs';
 import { repoRoot } from './repo.mjs';
 
 /** Folder of the test stack modules (`fake`), passed as `stacksDir` to the standard lib. */
 export const FAKE_STACKS = join(repoRoot, 'tests', 'fixtures', 'stacks');
+
+/**
+ * The sample repos that CI lints with zizmor and actionlint, as `[{ name, stack, deploy }]`:
+ * the fake stack with every CD variant, and the django module with deploy targets container and none.
+ */
+export function samples() {
+  const fake = loadStack('fake', FAKE_STACKS);
+  const django = loadStack('django');
+  return [
+    ['container', fake, 'container'], ['webspace', fake, 'webspace'], ['none', fake, 'none'],
+    ['django-container', django, 'container'], ['django-none', django, 'none'],
+  ].map(([name, stack, deploy]) => ({ name, stack, deploy }));
+}
 
 /** The job ids of a generated workflow (keys two spaces below `jobs:`). */
 export function jobIds(yaml) {

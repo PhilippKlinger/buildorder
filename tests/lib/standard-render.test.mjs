@@ -7,7 +7,7 @@ import { walk } from '../../plugins/buildorder/lib/fsx.mjs';
 import { STACKS_DIR, loadStack, render } from '../../plugins/buildorder/lib/standard.mjs';
 import { cleanup, tempDir } from '../helpers/cli.mjs';
 import { repoRoot } from '../helpers/repo.mjs';
-import { FAKE_STACKS, jobIds, jobText, needsOf, runLines, usesLines } from '../helpers/standard.mjs';
+import { FAKE_STACKS, jobIds, jobText, needsOf, runLines, samples, usesLines } from '../helpers/standard.mjs';
 
 after(cleanup);
 
@@ -169,12 +169,14 @@ test('no runner, steps, job or matrix context in workflow-level or job-level env
   }
 });
 
-test('the CI sample helper writes every CD variant for the zizmor and actionlint steps', () => {
+test('the CI sample helper writes every sample (fake CD variants, django) for the zizmor and actionlint steps', () => {
   const out = tempDir('standard sample');
   execFileSync(process.execPath, [join(repoRoot, 'tests', 'helpers', 'standard-sample.mjs'), out], { stdio: 'pipe' });
-  for (const deploy of ['container', 'webspace', 'none']) {
-    for (const { path, content } of render({ stack: fake(), deploy, skip: new Set() })) {
-      assert.equal(readFileSync(join(out, deploy, ...path.split('/')), 'utf8'), content, `${deploy}: ${path}`);
+  const list = samples();
+  assert.deepEqual(list.map((s) => s.name), ['container', 'webspace', 'none', 'django-container', 'django-none']);
+  for (const { name, stack, deploy } of list) {
+    for (const { path, content } of render({ stack, deploy, skip: new Set() })) {
+      assert.equal(readFileSync(join(out, name, ...path.split('/')), 'utf8'), content, `${name}: ${path}`);
     }
   }
 });
