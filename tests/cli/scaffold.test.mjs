@@ -1,8 +1,8 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanup, cli, codeRepo, gitIn, tmp, write } from '../helpers/cli.mjs';
+import { cleanup, cli, codeRepo, commitAll, gitIn, gitInit, tmp, write } from '../helpers/cli.mjs';
 
 after(cleanup);
 
@@ -177,4 +177,55 @@ test('invalid options fail with one line', () => {
     assert.match(r.stderr, /^buildorder: [^\n]+\n$/, args.join(' '));
   }
   assert.deepEqual(readdirSync(dir), []);
+});
+
+// The workspace root is the private docs repo (spec "Zwei Orte"): git init without a commit, repos gitignored.
+const topOf = (dir) => realpathSync.native(gitIn(dir, 'rev-parse', '--show-toplevel'));
+
+test('a new workspace root becomes a git repo on main without a commit, and every repo is gitignored', () => {
+  const dir = tmp('scaffold root repo');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  const out = scaffold(dir, '--new-repo', 'shop app');
+  assert.equal(out.rootRepo, 'created');
+  assert.equal(topOf(dir), realpathSync.native(dir));
+  assert.equal(gitIn(dir, 'symbolic-ref', 'HEAD'), 'refs/heads/main');
+  assert.equal(gitIn(dir, 'rev-list', '--all', '--count'), '0', 'scaffold makes no commit');
+  assert.ok(out.created.includes('.gitignore'));
+  assert.equal(read(dir, '.gitignore'), '/app/\n/shop app/\n');
+  assert.deepEqual(out.ignored, ['/app/', '/shop app/']);
+  const untracked = gitIn(dir, 'status', '--porcelain', '--untracked-files=all').split('\n').map((l) => l.slice(3));
+  assert.deepEqual(sorted(untracked), sorted(['.gitignore', ...ALL_FILES]), 'the nested repos are never added');
+
+  const again = scaffold(dir);
+  assert.equal(again.rootRepo, 'existing');
+  assert.deepEqual(again.ignored, []);
+  assert.ok(again.skipped.includes('.gitignore'));
+  assert.equal(read(dir, '.gitignore'), '/app/\n/shop app/\n');
+});
+
+test('a root that is a repo or lies inside one is left alone; an existing .gitignore only gets the missing entries', () => {
+  const own = tmp('scaffold own repo');
+  gitInit(own);
+  write(own, { 'notes.md': '# mine\n', '.gitignore': 'node_modules/\n/app/' });
+  commitAll(own, 'mine');
+  codeRepo(null, undefined, { dir: join(own, 'app') });
+  codeRepo(null, { 'README.md': '# lib\n' }, { dir: join(own, 'lib') });
+  const head = gitIn(own, 'rev-parse', 'HEAD');
+  const out = scaffold(own);
+  assert.equal(out.rootRepo, 'existing');
+  assert.equal(gitIn(own, 'rev-parse', 'HEAD'), head, 'no commit');
+  assert.equal(read(own, '.gitignore'), 'node_modules/\n/app/\n/lib/\n');
+  assert.deepEqual(out.ignored, ['/lib/']);
+  assert.ok(!out.created.includes('.gitignore') && !out.skipped.includes('.gitignore'));
+
+  const parent = tmp('scaffold parent repo');
+  gitInit(parent);
+  write(parent, { 'README.md': '# parent\n' });
+  commitAll(parent, 'parent');
+  const inner = join(parent, 'work space');
+  codeRepo(null, undefined, { dir: join(inner, 'app') });
+  const nested = scaffold(inner);
+  assert.equal(nested.rootRepo, 'existing');
+  assert.equal(existsSync(join(inner, '.git')), false, 'no repo inside the parent repo');
+  assert.equal(read(inner, '.gitignore'), '/app/\n');
 });

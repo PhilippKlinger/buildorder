@@ -1,6 +1,6 @@
 // scaffold: writes a workspace into a folder: the doc-map, CLAUDE.md and .claude/workspace.json.
 // It never overwrites: an existing file is reported as skipped, so a second run changes nothing.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { PLUGIN_ROOT, detect, safeName, validName } from './detect.mjs';
 import { gitResult } from './git.mjs';
@@ -73,11 +73,55 @@ function initRepo(root, name) {
 }
 
 /**
+ * The workspace root as the private docs repo (spec "Zwei Orte"): `git init` on main with fixed arguments,
+ * unless the root already is a repo or lies inside one (e.g. the user's own docs repo), which is left alone.
+ * No commit: the first docs commit is the user's, or comes from /buildorder:handoff.
+ */
+function initRoot(root) {
+  if (existsSync(join(root, '.git'))) return 'existing';
+  if (gitResult(root, ['rev-parse', '--is-inside-work-tree']).stdout === 'true') return 'existing';
+  const r = gitResult(root, ['init', '-q', '-b', 'main']);
+  if (!r.ok) throw new Error(`git init of the workspace root failed: ${r.stderr.split('\n')[0] || 'unknown error'}`);
+  return 'created';
+}
+
+/** A root-anchored .gitignore line for the repo folder `path`; glob characters match literally. */
+const ignoreLine = (path) => `/${path.replace(/[\\*?[]/g, '\\$&')}/`;
+
+/**
+ * Lists every repo folder (relative paths, '' is the root) in the root's .gitignore, so the docs repo
+ * never adds a nested repo. A new file goes through `put`; an existing one is never rewritten: the missing
+ * lines are appended, and without any it counts as skipped. Returns the lines added.
+ */
+function ignoreRepos(root, paths, put, skipped) {
+  const lines = [...new Set(paths.filter((p) => p !== '').map(ignoreLine))];
+  const file = join(root, '.gitignore');
+  if (!existsSync(file)) {
+    if (lines.length) put('.gitignore', lines.map((l) => `${l}\n`).join(''));
+    return lines;
+  }
+  const text = readFileSync(file, 'utf8');
+  // `app`, `app/`, `/app` and `/app/` all keep the top-level folder app out.
+  const have = new Set(text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    .map((l) => `/${l.replace(/^\//, '').replace(/\/$/, '')}/`));
+  const missing = lines.filter((l) => !have.has(l));
+  if (!missing.length) {
+    skipped.push('.gitignore');
+    return [];
+  }
+  const sep = text === '' || text.endsWith('\n') ? '' : '\n';
+  appendFileSync(file, sep + missing.map((l) => `${l}\n`).join(''));
+  return missing;
+}
+
+/**
  * Writes the workspace files into `dir` (an existing folder). Options: `lang` (en|de), `name`, `repo`
  * (repo paths to record; default: every repo detect finds), `visibility` (public|private, recorded on each
  * repo entry; /buildorder:secure reads it), `newRepo` (a folder name: create the new project's code repo
  * there with `git init` on main and record it). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
+ * The root becomes a git repo without a commit (`rootRepo`: created | existing), and its .gitignore lists
+ * every recorded repo folder (`ignored`: the lines added).
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
 export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {
@@ -105,6 +149,7 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {
   const wsName = name ?? keptName ?? safeName(basename(root));
   const wanted = newRepo === undefined ? repo : [...(repo ?? []), newRepo];
   const repos = pickRepos(root, d.repos, wanted, visibility);
+  const rootRepo = initRoot(root);
 
   const created = [];
   const skipped = [];
@@ -136,5 +181,11 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {
   for (const file of ['CLAUDE.md', ...Object.values(DOC_MAP)]) {
     put(file, fill(readFileSync(join(TEMPLATES, docsLang, file), 'utf8'), vals));
   }
-  return { ok: true, dir: root, created, skipped };
+  // Every repo folder: those on record (a kept workspace.json included) and the unrecorded ones detect found.
+  const folders = [...(Array.isArray(existing?.repos) ? existing.repos : []), ...repos, ...d.repos]
+    .map((r) => (typeof r?.path === 'string' ? relativeTo(resolve(root, r.path), root) : null))
+    .filter((p) => p !== null)
+    .sort();
+  const ignored = ignoreRepos(root, folders, put, skipped);
+  return { ok: true, dir: root, rootRepo, created, skipped, ignored };
 }
