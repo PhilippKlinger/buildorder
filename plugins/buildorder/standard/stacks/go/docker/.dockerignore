@@ -1,0 +1,8 @@
+.git
+.github
+.env
+.env.*
+coverage.out
+*.test
+Dockerfile
+.dockerignore

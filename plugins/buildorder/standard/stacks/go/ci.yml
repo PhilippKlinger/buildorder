@@ -1,0 +1,70 @@
+# Go stack: lint (golangci-lint), tests with the race detector and coverage, the build checks
+# (go mod verify, go build) and the dependency audit (govulncheck). Expects the starter's layout:
+# go.mod (and go.sum, when there are dependencies) in the repo root.
+lint:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: "1.27.4"
+        cache: false
+    - name: Lint
+      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+      with:
+        version: v2.15.0
+        skip-cache: true
+        skip-save-cache: true
+
+test:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: "1.27.4"
+        cache: false
+    - name: Test with the race detector and coverage
+      run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+    - name: Show the coverage
+      run: go tool cover -func=coverage.out
+
+build:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: "1.27.4"
+        cache: false
+    - name: Verify the module cache
+      run: go mod verify
+    - name: Build
+      run: go build ./...
+
+audit:
+  runs-on: ubuntu-latest
+  permissions:
+    contents: read
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: "1.27.4"
+        cache: false
+    - name: Audit dependencies
+      run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
