@@ -3,7 +3,7 @@
 // the person runs the commands once the repo exists on GitHub (AK-6, K5).
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { maskRemote } from './detect.mjs';
+import { PLUGIN_ROOT, maskRemote } from './detect.mjs';
 import { git } from './git.mjs';
 import { relativeTo } from './paths.mjs';
 import { VISIBILITIES } from './standard.mjs';
@@ -71,101 +71,47 @@ function hasCiOk(abs) {
   });
 }
 
-// The checklist text per docs language (`language.docs` of the workspace); the commands are the same in both.
-const TEXT = {
-  en: {
-    title: '# GitHub settings',
-    intro: [
-      '> Written by Buildorder, which never creates a repo, pushes or calls the GitHub API. Run these commands yourself',
-      '> from the workspace root, once the repo exists on GitHub and `main` is pushed. They need the GitHub CLI, logged in',
-      '> with admin rights on the repo (`gh auth status`).',
-    ],
-    noRemote: (slug) => `No GitHub remote yet: after the first push, replace \`${slug}\` with the repo's owner and name.`,
-    ruleset: `- [ ] Ruleset on the default branch: pull requests only, no force push, no deletion, required check \`${REQUIRED_CHECK}\``,
-    looseRuleset: [
-      '- [ ] Ruleset on the default branch: pull requests only, no force push, no deletion (no required check yet:',
-      `  the repo's CI has no \`${REQUIRED_CHECK}\` job)`,
-    ],
-    requireLater: (slug) => `- [ ] Once \`ci.yml\` with the \`${REQUIRED_CHECK}\` job is on \`main\` (the gap task of the standard), require it:`
-      + ` take the ruleset id from \`gh api repos/${slug}/rulesets\`, then`,
-    privateSecrets: [
-      '- Secret scanning and push protection: left out, a private repo needs GitHub Advanced Security (Secret',
-      '  Protection) for them; the gitleaks job in CI is the protection.',
-    ],
-    secrets: '- [ ] Secret scanning and push protection',
-    alerts: '- [ ] Dependabot alerts',
-    check: (slug) => `- [ ] Check: \`gh api repos/${slug}/rulesets\` lists the ruleset \`${RULESET_BODY.name}\`.`,
-    noRepos: 'No repo is listed in `.claude/workspace.json`.',
-    outro: [
-      'Private repos: rulesets need GitHub Pro or higher, secret scanning and push protection need GitHub Secret',
-      'Protection. Without them, the gitleaks job in CI is the protection.',
-    ],
-  },
-  de: {
-    title: '# GitHub-Einstellungen',
-    intro: [
-      '> Von Buildorder geschrieben; Buildorder legt nie ein Repo an, pusht nicht und ruft die GitHub-API nicht auf. Führe diese',
-      '> Befehle selbst im Workspace-Root aus, sobald das Repo auf GitHub existiert und `main` gepusht ist. Du brauchst die',
-      '> GitHub CLI, angemeldet mit Admin-Rechten auf dem Repo (`gh auth status`).',
-    ],
-    noRemote: (slug) => `Noch kein GitHub-Remote: ersetze \`${slug}\` nach dem ersten Push durch Besitzer und Namen des Repos.`,
-    ruleset: `- [ ] Ruleset für den Standard-Branch: nur Pull Requests, kein Force-Push, kein Löschen, Pflicht-Check \`${REQUIRED_CHECK}\``,
-    looseRuleset: [
-      '- [ ] Ruleset für den Standard-Branch: nur Pull Requests, kein Force-Push, kein Löschen (noch kein Pflicht-Check:',
-      `  die CI des Repos hat noch keinen Job \`${REQUIRED_CHECK}\`)`,
-    ],
-    requireLater: (slug) => `- [ ] Sobald \`ci.yml\` mit dem Job \`${REQUIRED_CHECK}\` auf \`main\` liegt (die Lückenaufgabe des Standards), mach ihn zur Pflicht:`
-      + ` hole die Ruleset-ID aus \`gh api repos/${slug}/rulesets\`, dann`,
-    privateSecrets: [
-      '- Secret Scanning und Push Protection: ausgelassen, ein privates Repo braucht dafür GitHub Advanced Security (Secret',
-      '  Protection); der gitleaks-Job in der CI ist der Schutz.',
-    ],
-    secrets: '- [ ] Secret Scanning und Push Protection',
-    alerts: '- [ ] Dependabot-Warnungen',
-    check: (slug) => `- [ ] Prüfen: \`gh api repos/${slug}/rulesets\` listet das Ruleset \`${RULESET_BODY.name}\`.`,
-    noRepos: 'In `.claude/workspace.json` ist kein Repo eingetragen.',
-    outro: [
-      'Private Repos: Rulesets brauchen GitHub Pro oder höher, Secret Scanning und Push Protection brauchen GitHub Secret',
-      'Protection. Ohne sie ist der gitleaks-Job in der CI der Schutz.',
-    ],
-  },
-};
-
-function rulesetSteps({ slug, ciOk }, block, tx) {
-  if (ciOk) return [tx.ruleset, ...block(`gh api --method POST repos/${slug}/rulesets --input ${RULESET}`)];
-  return [
-    ...tx.looseRuleset,
-    ...block(`gh api --method POST repos/${slug}/rulesets --input ${LOOSE_RULESET}`),
-    tx.requireLater(slug),
-    ...block(`gh api --method PUT repos/${slug}/rulesets/RULESET_ID --input ${RULESET}`),
-  ];
-}
+// The checklist text per docs language (`language.docs` of the workspace): templates/github/<lang>/checklist.json,
+// a string or a list of lines per key. `{{slug}}`, `{{check}}` and `{{ruleset}}` are filled in; the `gh` commands
+// are the same in every language.
+const loadTexts = (lang) => JSON.parse(readFileSync(join(PLUGIN_ROOT, 'templates', 'github', lang, 'checklist.json'), 'utf8'));
+const fill = (v, vals) => (Array.isArray(v) ? v.map((s) => fill(s, vals)) : v.replace(/\{\{(\w+)\}\}/g, (m, key) => vals[key] ?? m));
+const lines = (v) => (Array.isArray(v) ? v : [v]);
 
 function section(repo, tx) {
-  const { path, slug, remote, visibility } = repo;
+  const { path, slug, remote, visibility, ciOk } = repo;
+  const t = (key) => lines(fill(tx[key], { slug, check: REQUIRED_CHECK, ruleset: RULESET_BODY.name }));
   const block = (cmd) => ['  ```', `  ${cmd}`, '  ```'];
+  const ruleset = ciOk
+    ? [...t('ruleset'), ...block(`gh api --method POST repos/${slug}/rulesets --input ${RULESET}`)]
+    : [
+      ...t('looseRuleset'),
+      ...block(`gh api --method POST repos/${slug}/rulesets --input ${LOOSE_RULESET}`),
+      ...t('requireLater'),
+      ...block(`gh api --method PUT repos/${slug}/rulesets/RULESET_ID --input ${RULESET}`),
+    ];
   const secrets = visibility === 'private'
-    ? tx.privateSecrets
-    : [tx.secrets,
+    ? t('privateSecrets')
+    : [...t('secrets'),
       ...block(`gh api --method PATCH repos/${slug} -f "security_and_analysis[secret_scanning][status]=enabled"`
         + ' -f "security_and_analysis[secret_scanning_push_protection][status]=enabled"')];
   return [
     `## ${path} (\`${slug}\`)`,
     '',
-    ...(remote ? [] : [tx.noRemote(slug), '']),
-    ...rulesetSteps(repo, block, tx),
+    ...(remote ? [] : [...t('noRemote'), '']),
+    ...ruleset,
     ...secrets,
-    tx.alerts,
+    ...t('alerts'),
     ...block(`gh api --method PUT repos/${slug}/vulnerability-alerts`),
-    tx.check(slug),
+    ...t('verify'),
     '',
   ];
 }
 
 function markdown(repos, lang) {
-  const tx = TEXT[lang];
+  const tx = loadTexts(lang);
   return [
-    tx.title,
+    ...lines(tx.title),
     '',
     ...tx.intro,
     '',

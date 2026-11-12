@@ -9,6 +9,8 @@ after(cleanup);
 
 // An scp-style remote, assembled so no address-like literal is tracked.
 const SSH_REMOTE = ['git', 'github.com:acme/shop.git'].join('@');
+// Built from char codes: this file stays ASCII (shipped text is English).
+const UMLAUT = new RegExp(`[${String.fromCharCode(0xe4, 0xf6, 0xfc, 0xdf)}]`);
 const read = (dir, rel) => readFileSync(join(dir, ...rel.split('/')), 'utf8');
 
 // A ci.yml with the ci-ok job, as the standard writes it.
@@ -118,7 +120,7 @@ test('the checklist follows language.docs: German text with umlauts, the same co
     assert.deepEqual(commandsOf(de), commandsOf(en), label + ': commands are not translated');
   }
   const loosePrivate = checklistText('github de words', null, { lang: 'de', visibility: 'private', ciOk: false });
-  assert.match(loosePrivate, /[äöüß]/, 'real umlauts');
+  assert.match(loosePrivate, UMLAUT, 'real umlauts');
   assert.doesNotMatch(loosePrivate, /fuer|ueber|koennen|waehrend|muessen/i, 'no ae/oe/ue transliteration');
   assert.match(loosePrivate, /Noch kein GitHub-Remote/);
 });
