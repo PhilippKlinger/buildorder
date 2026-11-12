@@ -11,7 +11,7 @@ FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24@sha256:b5047b9b76845eac124358
 USER root
 # The pinned base image ages between Dependabot updates: apply Alpine security fixes.
 RUN apk upgrade --no-cache
-USER nginx
+USER 101
 # Single-page app: unknown paths fall back to index.html; the security headers are set once, at server level.
 COPY <<'NGINX' /etc/nginx/conf.d/default.conf
 server {
@@ -24,6 +24,13 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # Dotfiles are never served; /.well-known/ (security.txt, ACME) stays reachable.
+    location ^~ /.well-known/ {
+        try_files $uri =404;
+    }
+    location ~ /\. {
+        deny all;
+    }
     location / {
         try_files $uri /index.html;
     }
