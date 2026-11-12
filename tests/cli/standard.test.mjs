@@ -178,3 +178,16 @@ test('--gaps leaves out deliberate skips, says when there is no gap and refuses 
   assert.equal(both.status, 1);
   assert.match(both.stderr, /^buildorder: --gaps lists the plan and cannot be combined with --apply\n$/);
 });
+
+test('plan prints the read-only plan of standard and refuses --apply', () => {
+  const dir = localGit(codeRepo('standard plan', { 'README.md': '# x\n' }));
+  const before = snapshot(dir);
+  const r = cli('plan', dir, '--visibility', 'private');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json, standard(dir, '--visibility', 'private'));
+  assert.equal(r.json.applied, false);
+  const refused = cli('plan', dir, '--apply');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /^buildorder: .*--apply/);
+  assert.deepEqual(snapshot(dir), before, 'plan writes nothing, also when --apply is passed');
+});
