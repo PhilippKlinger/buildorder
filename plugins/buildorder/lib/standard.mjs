@@ -100,9 +100,12 @@ export function loadStack(id, stacksDir = STACKS_DIR) {
   };
 }
 
+const hasDockerfile = (stack) => Boolean(stack?.docker.some((f) => f.path === 'Dockerfile'));
+
 /** Whether the selection builds an image, and the CD variant that writes files (or null). */
 export function parts({ stack, deploy, skip }) {
-  const image = Boolean(stack) && !skip.has('container-image');
+  // The image is built from the stack module's Dockerfile; without one there is nothing to build.
+  const image = hasDockerfile(stack) && !skip.has('container-image');
   const cd = image && !skip.has('deploy') ? CD[deploy] ?? null : null;
   return { image, cd };
 }
@@ -209,6 +212,7 @@ function selection(root, model, { stack, deploy, visibility = 'public', without 
   }
   const deselected = deselections(model, without);
   const stackId = stack ?? defaultStack(root);
+  const module = stackId ? loadStack(stackId, stacksDir) : null;
   const target = deploy ?? defaultDeploy(root);
 
   const skips = new Map();
@@ -220,14 +224,17 @@ function selection(root, model, { stack, deploy, visibility = 'public', without 
     skips.set(item.id, reason);
     deviations.push({ id: item.id, class: item.class, reason });
   }
+  if (module && !hasDockerfile(module) && !skips.has('container-image')) {
+    skips.set('container-image', 'the stack module provides no Dockerfile');
+  }
   if (!skips.has('deploy')) {
-    if (skips.has('container-image')) skips.set('deploy', 'needs container-image, which is deselected');
+    if (skips.has('container-image')) skips.set('deploy', 'needs container-image, which is skipped');
     else if (target === 'none') skips.set('deploy', 'deploy target none');
     else if (target === 'paas') skips.set('deploy', 'deploy target paas: the provider deploys, no CD file');
   }
   return {
     stackId,
-    stack: stackId ? loadStack(stackId, stacksDir) : null,
+    stack: module,
     deploy: target,
     visibility,
     skips,

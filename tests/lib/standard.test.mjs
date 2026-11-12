@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadModel, standard } from '../../plugins/buildorder/lib/standard.mjs';
 import { cleanup, codeRepo, gitIn, tempDir, write } from '../helpers/cli.mjs';
@@ -164,6 +164,23 @@ test('deselecting the container image drops the image, the Dockerfile and the de
   assert.deepEqual(out.deviations, [{ id: 'container-image', class: 'standard', reason: 'library, nothing to run' }]);
   assert.deepEqual(out.modules, ['fake']);
   assert.deepEqual(out.files.map((f) => f.path), ['.github/workflows/ci.yml', '.github/dependabot.yml', '.pre-commit-config.yaml']);
+});
+
+test('a stack module without a Dockerfile gets no image job, and the image is skipped with the reason', () => {
+  const stacksDir = tempDir('standard stacks');
+  cpSync(join(FAKE_STACKS, 'fake'), join(stacksDir, 'fake'), { recursive: true });
+  rmSync(join(stacksDir, 'fake', 'docker'), { recursive: true });
+  const dir = repo('standard no dockerfile');
+  const out = standard(dir, { stack: 'fake', deploy: 'container', apply: true }, { stacksDir });
+  const items = Object.fromEntries(out.items.map((i) => [i.id, i]));
+  assert.equal(items['container-image'].state, 'skipped');
+  assert.equal(items['container-image'].reason, 'the stack module provides no Dockerfile');
+  assert.equal(items.deploy.state, 'skipped');
+  assert.deepEqual(out.deviations, [], 'no decision of a person, so no deviation');
+  assert.deepEqual(out.modules, ['fake']);
+  assert.deepEqual(out.created, ['.github/workflows/ci.yml', '.github/dependabot.yml', '.pre-commit-config.yaml']);
+  const jobs = jobIds(read(dir, '.github/workflows/ci.yml'));
+  assert.ok(!jobs.includes('image') && !jobs.includes('deploy'), jobs.join(' '));
 });
 
 test('CD variants: webspace writes its workflow, paas is a hint, none writes nothing', () => {

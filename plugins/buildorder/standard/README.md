@@ -25,7 +25,7 @@ A stack module lives in `standard/stacks/<id>/`, where `<id>` is the stack id th
 | `stack.json` | `codeql`, `dependabot` and `provides` (below) |
 | `ci.yml` | One or more CI jobs (lint, tests with coverage, build, dependency audit), written at column 0 as `<job-id>:` mappings. They are inserted under `jobs:` of the generated `ci.yml`; `ci-ok` and the image job need them. |
 | `pre-commit.yml` | Optional. The stack's hooks as `- repo:` entries at column 0, appended to the `repos:` list of `.pre-commit-config.yaml` (formatter and linter, for example ruff). |
-| `docker/` | Files written to the repo root when `container-image` is selected (`Dockerfile`, `.dockerignore`). The image is built from `Dockerfile` in the repo root. |
+| `docker/` | Files written to the repo root when `container-image` is selected (`Dockerfile`, `.dockerignore`). The image is built from `Dockerfile` in the repo root; a module without `docker/Dockerfile` gets no image job (`container-image` is skipped). |
 
 `stack.json`:
 
