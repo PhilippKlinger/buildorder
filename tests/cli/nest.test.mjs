@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readdirSync, readFileSync, realpathSync, renameSync, symlinkSync, watch, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { nest } from '../../plugins/buildorder/lib/nest.mjs';
 import { repoRoot } from '../helpers/repo.mjs';
@@ -212,9 +212,64 @@ test('refuses when git cannot read the repo', () => {
   assert.deepEqual(sorted(dir), entries);
 });
 
+test('refuses while a marker file from an earlier run exists and names its target', () => {
+  const dir = codeRepo('leftover marker');
+  write(dir, { '.buildorder-nest-456': 'app' });
+  const entries = sorted(dir);
+  const out = runNest(dir);
+  assert.equal(out.ok, false);
+  assert.ok(out.reason.includes(join(dir, '.buildorder-nest-456')), out.reason);
+  assert.ok(out.reason.includes(join(dir, 'app')), out.reason);
+  assert.equal(out.moved, 0);
+  assert.deepEqual(sorted(dir), entries);
+});
+
+test('never reads a marker that is a link or holds more than a folder name', (t) => {
+  const dir = codeRepo('marker link');
+  write(dir, { 'secret.txt': 'SECRET-CONTENT-12345\n' });
+  try {
+    symlinkSync('secret.txt', join(dir, '.buildorder-nest-789'));
+  } catch (err) {
+    if (['EPERM', 'EACCES', 'ENOSYS'].includes(err.code)) return t.skip('symlinks are not permitted here');
+    throw err;
+  }
+  const out = runNest(dir);
+  assert.equal(out.ok, false);
+  assert.ok(out.reason.includes('.buildorder-nest-789'), out.reason);
+  assert.ok(!out.reason.includes('SECRET-CONTENT'), out.reason);
+
+  const odd = codeRepo('marker odd content');
+  write(odd, { '.buildorder-nest-790': 'not a folder name/../etc\n' });
+  const r = runNest(odd);
+  assert.equal(r.ok, false);
+  assert.ok(!r.reason.includes('etc'), r.reason);
+});
+
+test('moves while a watcher holds .claude open (Windows EPERM on a folder rename)', () => {
+  const dir = codeRepo('watched');
+  write(dir, { '.claude/settings.local.json': '{}\n' });
+  const head = gitIn(dir, 'rev-parse', 'HEAD');
+  const before = status(dir);
+  // Claude Code watches .claude/; on Windows such a handle blocks renaming a folder that holds it.
+  const watcher = watch(join(dir, '.claude'), () => {});
+  try {
+    const out = nest(dir, 'app');
+    assert.equal(out.ok, true, out.reason);
+    assert.equal(out.headUnchanged, true);
+    assert.equal(out.statusUnchanged, true);
+    assert.ok(existsSync(join(dir, 'app', '.claude', 'settings.local.json')));
+    assert.equal(gitIn(join(dir, 'app'), 'rev-parse', 'HEAD'), head);
+    assert.equal(status(join(dir, 'app')), before);
+    assert.deepEqual(readdirSync(dir), ['app'], 'no marker left behind');
+  } finally {
+    watcher.close();
+  }
+});
+
 // The rename seam is test-only: it lets a test fail chosen renames the way a locked file would.
 const locked = (code) => Object.assign(new Error(`${code}: simulated lock`), { code });
-const inStaging = (p) => basename(dirname(p)).startsWith('.buildorder-nest-');
+// Entries move to <dir>/<name>/<entry> and back to <dir>/<entry>.
+const inRepo = (dir, p) => dirname(dirname(p)) === dir;
 
 test('rolls back every move when one fails, and retries a brief lock', () => {
   const dir = codeRepo('rollback');
@@ -235,13 +290,13 @@ test('rolls back every move when one fails, and retries a brief lock', () => {
   assert.equal(midway.moved, 0);
   restored('midway');
 
-  // The final rename (staging -> name) fails: all entries return from the staging folder.
-  const last = nest(dir, 'app', {
-    rename: (from, to) => (basename(to) === 'app' ? (() => { throw locked('EBUSY'); })() : renameSync(from, to)),
+  // The very first move fails: the empty target folder and the marker are removed again.
+  const first = nest(dir, 'app', {
+    rename: (from, to) => (basename(from) === '.git' ? (() => { throw locked('EBUSY'); })() : renameSync(from, to)),
   });
-  assert.equal(last.ok, false);
-  assert.match(last.reason, /moving 'app' failed \(EBUSY\); rolled back/);
-  restored('final rename');
+  assert.equal(first.ok, false);
+  assert.match(first.reason, /moving '\.git' failed \(EBUSY\); rolled back, nothing changed/);
+  restored('first move');
 
   // A lock released after a moment is retried and the move goes through.
   let locks = 1;
@@ -254,7 +309,7 @@ test('rolls back every move when one fails, and retries a brief lock', () => {
 });
 
 test('a rename that fails after it moved the entry is still rolled back', () => {
-  // Forward: `notes.txt` reaches the staging folder, then the rename reports a lock; the retry finds no source.
+  // Forward: `notes.txt` reaches the repo folder, then the rename reports a lock; the retry finds no source.
   const dir = codeRepo('throws after move');
   write(dir, { 'notes.txt': '' });
   const entries = sorted(dir);
@@ -262,7 +317,7 @@ test('a rename that fails after it moved the entry is still rolled back', () => 
   const forward = nest(dir, undefined, {
     rename: (from, to) => {
       renameSync(from, to);
-      if (basename(from) === 'notes.txt' && inStaging(to)) throw locked('EBUSY');
+      if (basename(from) === 'notes.txt' && inRepo(dir, to)) throw locked('EBUSY');
     },
   });
   assert.equal(forward.ok, false);
@@ -273,9 +328,9 @@ test('a rename that fails after it moved the entry is still rolled back', () => 
   // Back: `package.json` returns, then the rename reports a lock; the check finds it in place, not stuck.
   const back = nest(dir, undefined, {
     rename: (from, to) => {
-      if (basename(from) === 'src' && inStaging(to)) throw locked('EPERM');
+      if (basename(from) === 'src' && inRepo(dir, to)) throw locked('EPERM');
       renameSync(from, to);
-      if (basename(from) === 'package.json' && inStaging(from)) throw locked('EPERM');
+      if (basename(from) === 'package.json' && inRepo(dir, from)) throw locked('EPERM');
     },
   });
   assert.equal(back.ok, false);
@@ -285,23 +340,25 @@ test('a rename that fails after it moved the entry is still rolled back', () => 
   assert.equal(status(dir), before);
 });
 
-test('reports entries left in the staging folder when the rollback fails too', () => {
+test('reports entries left in the repo folder when the rollback fails too', () => {
   const dir = codeRepo('stuck');
   const out = nest(dir, undefined, {
     rename: (from, to) => {
       if (basename(from) === 'src') throw locked('EPERM');
-      if (basename(from) === 'package.json' && inStaging(from)) throw locked('EPERM');
+      if (basename(from) === 'package.json' && inRepo(dir, from)) throw locked('EPERM');
       return renameSync(from, to);
     },
   });
   assert.equal(out.ok, false);
-  const staging = join(dir, `.buildorder-nest-${process.pid}`);
+  const target = join(dir, 'target dir');
   assert.match(out.reason, /rollback is incomplete/);
-  assert.ok(out.reason.includes(staging), out.reason);
+  assert.ok(out.reason.includes(target), out.reason);
   assert.match(out.reason, /package\.json/);
+  assert.ok(out.reason.includes(`.buildorder-nest-${process.pid}`), 'the reason names the marker');
   assert.equal(out.moved, 1, 'one entry is not back in place');
-  assert.ok(existsSync(join(staging, 'package.json')), 'the stuck entry is where the reason says');
+  assert.ok(existsSync(join(target, 'package.json')), 'the stuck entry is where the reason says');
   assert.ok(existsSync(join(dir, '.git')), 'the other entries returned');
+  assert.ok(existsSync(join(dir, `.buildorder-nest-${process.pid}`)), 'the marker stays after an incomplete rollback');
 });
 
 test('never overwrites an entry that appeared during the move', () => {
@@ -310,14 +367,14 @@ test('never overwrites an entry that appeared during the move', () => {
   const original = readFileSync(join(dir, 'package.json'), 'utf8');
   const out = nest(dir, undefined, {
     rename: (from, to) => {
-      if (basename(from) === 'src' && inStaging(to)) {
+      if (basename(from) === 'src' && inRepo(dir, to)) {
         writeFileSync(join(dir, 'package.json'), 'newer\n');
         throw locked('EPERM');
       }
       return renameSync(from, to);
     },
   });
-  const staging = join(dir, `.buildorder-nest-${process.pid}`);
+  const staging = join(dir, 'target dir');
   assert.equal(out.ok, false);
   assert.match(out.reason, /rollback is incomplete/);
   const both = `both versions exist: ${join(dir, 'package.json')} and ${join(staging, 'package.json')}`;
@@ -325,20 +382,6 @@ test('never overwrites an entry that appeared during the move', () => {
   assert.equal(out.moved, 1);
   assert.equal(readFileSync(join(dir, 'package.json'), 'utf8'), 'newer\n', 'the newer file is kept');
   assert.equal(readFileSync(join(staging, 'package.json'), 'utf8'), original, 'the repo file is kept');
-
-  // The final name appears during the move (an empty folder, which a POSIX rename would replace).
-  const late = codeRepo('final name taken');
-  const entries = sorted(late);
-  const taken = nest(late, 'app', {
-    rename: (from, to) => {
-      renameSync(from, to);
-      if (basename(from) === 'src' && inStaging(to)) mkdirSync(join(late, 'app'));
-    },
-  });
-  assert.equal(taken.ok, false);
-  assert.match(taken.reason, /moving 'app' failed \(EEXIST\); rolled back, nothing changed/);
-  assert.deepEqual(sorted(late), [...entries, 'app'].sort());
-  assert.deepEqual(readdirSync(join(late, 'app')), [], 'the other folder stays untouched');
 });
 
 test('a status that differs after the move leaves the files moved and says so', () => {
@@ -346,7 +389,7 @@ test('a status that differs after the move leaves the files moved and says so', 
   const out = nest(dir, 'app', {
     rename: (from, to) => {
       renameSync(from, to);
-      if (basename(to) === 'app') writeFileSync(join(to, 'late.txt'), ''); // e.g. a dev server writing
+      if (basename(from) === 'src' && inRepo(dir, to)) writeFileSync(join(dir, 'app', 'late.txt'), ''); // e.g. a dev server writing
     },
   });
   const repo = join(dir, 'app');
@@ -359,12 +402,37 @@ test('a status that differs after the move leaves the files moved and says so', 
   assert.ok(existsSync(join(repo, '.git')));
 });
 
+test('does not claim nothing changed when the marker file cannot be removed', () => {
+  const stuck = () => { throw locked('EPERM'); };
+  const marker = (dir) => join(dir, `.buildorder-nest-${process.pid}`);
+
+  // Complete rollback, marker stays.
+  const dir = codeRepo('marker stuck rollback');
+  const entries = sorted(dir);
+  const failed = nest(dir, 'app', {
+    rename: (from, to) => (basename(from) === 'src' ? stuck() : renameSync(from, to)),
+    unlink: stuck,
+  });
+  assert.equal(failed.ok, false);
+  assert.doesNotMatch(failed.reason, /nothing changed/);
+  assert.ok(failed.reason.includes(marker(dir)), failed.reason);
+  assert.deepEqual(sorted(dir), [...entries, basename(marker(dir))].sort());
+
+  // Successful move, marker stays: a warning, the move itself is fine.
+  const done = codeRepo('marker stuck success');
+  const out = nest(done, 'app', { unlink: stuck });
+  assert.equal(out.ok, true, out.reason);
+  assert.equal(out.warnings.length, 1);
+  assert.ok(out.warnings[0].includes(marker(done)), out.warnings[0]);
+  assert.deepEqual(sorted(done), ['app', basename(marker(done))].sort());
+});
+
 test('warns about an entry that appeared outside the repo during the move', () => {
   const dir = codeRepo('stray');
   const out = nest(dir, 'app', {
     rename: (from, to) => {
       renameSync(from, to);
-      if (basename(to) === 'app') writeFileSync(join(dir, 'stray.log'), '');
+      if (basename(from) === 'src' && inRepo(dir, to)) writeFileSync(join(dir, 'stray.log'), '');
     },
   });
   assert.equal(out.ok, true, out.reason);

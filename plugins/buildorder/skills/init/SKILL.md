@@ -25,7 +25,7 @@ Quote every path: paths may hold spaces.
 Act on `suggestion`:
 - `blocked`: explain and stop. `foreign-workspace`: the `.claude/workspace.json` here is not Buildorder's.
   `agent-setup`: the folder already has an agent setup (`existingSetup`); Buildorder never overwrites one.
-- `multi-repo`: say that several code repos in one workspace are not supported in 0.1.0, and offer to run init in
+- `multi-repo`: say that several code repos in one workspace are not supported yet, and offer to run init in
   a folder that holds one repo. Stop.
 - `repo-root`: the folder is itself a code repo, so the workspace cannot live in it. If
   `workspaceProposal.inPlace.blockers` is not empty, name them and stop. Otherwise explain in two sentences:

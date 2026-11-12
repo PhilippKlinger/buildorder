@@ -82,6 +82,20 @@ test('django image: slim Python base pinned by digest, same Python as CI, non-ro
   assert.match(stack.docker.find((f) => f.path === '.dockerignore').content, /^\.git$/m);
 });
 
+test('django image: no pip in the final image, Debian security updates applied in the runtime stage', () => {
+  const dockerfile = django().docker.find((f) => f.path === 'Dockerfile').content;
+  const [build, runtime] = dockerfile.split(/^FROM /m).slice(1);
+  assert.match(build, /python -m venv --without-pip \/venv/);
+  assert.match(build, /pip --python \/venv\/bin\/python install --requirement/);
+  assert.doesNotMatch(build, /\/venv\/bin\/pip/);
+  assert.match(runtime, /apt-get update/);
+  assert.match(runtime, /apt-get upgrade -y --no-install-recommends/);
+  assert.match(runtime, /rm -rf \/var\/lib\/apt\/lists\/\*/);
+  assert.match(runtime, /python -m pip uninstall -y pip/);
+  assert.ok(runtime.indexOf('pip uninstall') < runtime.indexOf('USER app'), 'root work happens before USER app');
+  assert.ok(runtime.indexOf('apt-get upgrade') < runtime.indexOf('USER app'), 'root work happens before USER app');
+});
+
 test('django starter: every requirement is pinned exactly', () => {
   const starter = Object.fromEntries(django().starter.map((f) => [f.path, f.content]));
   for (const file of ['requirements.txt', 'requirements-dev.txt']) {
