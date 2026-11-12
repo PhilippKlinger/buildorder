@@ -1,7 +1,8 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, realpathSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { cleanup, cli, codeRepo, commitAll, gitIn, gitInit, tempDir, tmp, write } from '../helpers/cli.mjs';
 
 after(cleanup);
@@ -89,6 +90,37 @@ test('the workspace root is the docs place, whether or not it is a git repo', ()
   assert.equal(docs.state, 'ok');
   assert.equal(docs.branch, 'main');
   assert.equal(docs.changed, 0);
+});
+
+test('repos nested in the docs repo are not changes of the docs root', () => {
+  const root = workspace('status nested', ['my app']);
+  gitInit(root);
+  commitAll(root, 'docs');
+  // Created after the docs commit and not in a .gitignore: the root sees `?? my app/`.
+  codeRepo(null, undefined, { dir: join(root, 'my app') });
+  assert.match(gitIn(root, 'status', '--porcelain'), /my app/);
+  assert.equal(place(status(root), '.').changed, 0);
+
+  write(root, { 'HANDOFF.md': 'x' });
+  assert.equal(place(status(root), '.').changed, 1);
+});
+
+// A stand-in `git` that answers --show-toplevel with an MSYS-style path Node cannot resolve.
+// POSIX only: Windows spawns `git.exe` and would not pick up a shell script.
+test('a toplevel path that cannot be resolved makes the repo unreadable, not the command fail', {
+  skip: process.platform === 'win32' && 'needs a shell-script git stand-in (POSIX)',
+}, () => {
+  const root = workspace('status msys', ['app']);
+  codeRepo(null, undefined, { dir: join(root, 'app') });
+  const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const bin = tempDir('fake git');
+  write(bin, {
+    git: `#!/bin/sh\ncase "$*" in *show-toplevel*) echo "/c/no such/msys path"; exit 0;; esac\nexec "${realGit}" "$@"\n`,
+  });
+  chmodSync(join(bin, 'git'), 0o755);
+  const r = cli('status', root, '--json', { env: { PATH: `${bin}${delimiter}${process.env.PATH}` } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(place(r.json, 'app').state, 'unreadable');
 });
 
 test('a missing folder and a folder without its own repo get a short state, not a failure', () => {
