@@ -86,3 +86,20 @@ test('hooks.disabled switches the reminder off', () => {
   commitFile(root, 'BACKLOG.md', '# Backlog\n');
   assert.equal(stop(root).stdout, '');
 });
+
+test('stays silent while init is running and right after it finished, but not for later commits', () => {
+  const scaffolded = makeWorkspace({ initPhase: 'scaffolded' });
+  initRoot(scaffolded);
+  commitFile(join(scaffolded, 'app'), 'app.py', 'print(1)\n'); // init's own starter commit
+  assert.equal(stop(scaffolded).stdout, '', 'init still running');
+
+  const done = makeWorkspace({ initPhase: 'done' });
+  initRoot(done);
+  commitFile(join(done, 'app'), 'app.py', 'print(1)\n', '2020-01-01T00:00:00Z'); // before finalize wrote workspace.json
+  assert.equal(stop(done).stdout, '', 'init just finished');
+
+  const later = new Date(Date.now() - 120_000);
+  utimesSync(join(done, '.claude', 'workspace.json'), later, later);
+  commitFile(join(done, 'app'), 'more.py', 'print(2)\n'); // real work after init
+  assert.match(stop(done).json.systemMessage, /\(app\)/);
+});

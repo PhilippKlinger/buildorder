@@ -242,3 +242,28 @@ test('CD variants: webspace writes its workflow, paas is a hint, none writes not
   // Nothing was written: the plan stays read-only.
   assert.equal(gitIn(dir, 'status', '--porcelain', '--untracked-files=all'), '');
 });
+
+test('--apply refreshes isCode and stacks of its own repo only, also deep in the tree, and says when the entry is missing', () => {
+  const ws = tempDir('standard ws own');
+  const other = { path: 'other', isCode: false, stacks: ['stale'] };
+  write(ws, {
+    '.claude/workspace.json': JSON.stringify({
+      schemaVersion: 1, name: 'demo', repos: [{ path: 'one/two/three/app', isCode: false, stacks: [] }, other],
+    }),
+  });
+  // Deeper than detect looks for repos: a workspace-wide detect would not find it and skip silently.
+  const dir = repo(null, { 'README.md': '# app\n' }, { dir: join(ws, 'one', 'two', 'three', 'app') });
+  const out = run(dir, { apply: true, deploy: 'none' });
+  assert.deepEqual(out.workspace, { dir: ws, recorded: true });
+  const saved = JSON.parse(read(ws, '.claude/workspace.json'));
+  assert.equal(saved.repos[0].isCode, true);
+  assert.deepEqual(saved.repos[0].stacks, ['docker', 'github-actions']);
+  assert.deepEqual(saved.repos[1], other, 'the other repo entry stays as it was');
+
+  const unlisted = tempDir('standard ws unlisted');
+  write(unlisted, { '.claude/workspace.json': JSON.stringify({ schemaVersion: 1, name: 'demo', repos: [] }) });
+  const lone = repo(null, { 'README.md': '# app\n' }, { dir: join(unlisted, 'app') });
+  const res = run(lone, { apply: true, deploy: 'none' });
+  assert.equal(res.workspace.recorded, false);
+  assert.match(res.workspace.reason, /no entry for 'app'/);
+});

@@ -61,9 +61,12 @@ covers: standards appear in step 2 and can be changed there.
    without runtime gets no Docker image: propose `none` and the deviation "no Docker".
 
 **Existing project:** one block: confirm the repo and its `stacks`; goal (revive, modernise, extend); visibility;
-deploy target (recommend `repos[].deploy` and name its evidence). A second block: personal data or login, plus
+deploy target (recommend `repos[].deploy` and name its evidence); release style (every merge to `main`, or tags
+with SemVer; recommend from the existing tags and workflows, but ask, never assume). A second block: personal data or login, plus
 deviations only where the finding argues against a standard (a library without runtime: no container image).
 If the start text or notes contradict the finding, ask and name the evidence; never decide silently.
+Before `assess` ran, statements about data, payments or third-party services come from grep hits and file names
+only: phrase them as hints ("traces of …", "looks like …"), never as facts. `assess` confirms or corrects them.
 
 ## 2. Confirmation
 
@@ -75,8 +78,8 @@ Run the read-only plan: `plan "<repo>" [--stack <id>] --deploy <target> --visibi
 Pass `--stack` only with a stack that has a module (`django`, `python`, `go`, `react`, `angular`), never another entry of `stacks` such as
 `github-actions`; otherwise leave it out (for an existing repo, `plan` picks the detected stack itself).
 Show compactly:
-- **Workspace:** `CLAUDE.md`, `.claude/workspace.json`, the six doc-map files, `docs/github-settings.md`,
-  `docs/github-ruleset.json`; for an existing project also the audit file in `docs/audits/`. The folder becomes
+- **Workspace:** `CLAUDE.md`, `.claude/workspace.json`, the six doc-map files; for an existing project also the
+  audit file in `docs/audits/`. The folder becomes
   a private docs repo (`git init`, no commit) unless it already is one, with the repo folders and
   `.claude/settings.local.json` in `.gitignore`.
 - **Repo:** new project: the plan's `files` plus, with a stack module, its tested starter, in one commit, no push. Existing project: unchanged; every
@@ -84,7 +87,8 @@ Show compactly:
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be
   deselected.
 - **Deviations** with their reasons (`deviations`), and the first backlog tasks.
-- **GitHub:** a checklist with ready commands; Buildorder calls nothing.
+- **GitHub:** at the very end, `docs/github-settings.md` and `docs/github-ruleset.json`: a checklist with ready
+  commands; Buildorder calls nothing.
 - **Docs language.**
 - With `django` and deploy target `container` or `paas`: behind a proxy that terminates TLS, set
   `DJANGO_BEHIND_PROXY=true`.
@@ -127,7 +131,8 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
 
 1. `verify .`: fix every problem and run it again; stop and name what cannot be fixed. Name the `warnings`.
 2. `finalize .`: sets `initPhase: done`.
-3. `github-checklist .`: writes the checklist with ready commands. Never create a repo, push or call the GitHub
+3. `github-checklist . [--repo <owner/name>]`: writes the checklist with ready commands. Pass `--repo` when the user
+   named the GitHub repo in the interview and the repo has no remote yet. Never create a repo, push or call the GitHub
    API, even when `gh` is logged in.
 
 ## 6. Close
