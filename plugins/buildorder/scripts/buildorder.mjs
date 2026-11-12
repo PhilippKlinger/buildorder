@@ -7,6 +7,7 @@
 //   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]... [--visibility public|private]
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
+//   node buildorder.mjs github-checklist [dir]   (writes docs/github-settings.md and the ruleset; no API call)
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--starter] [--apply]
 //                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
@@ -16,6 +17,7 @@
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
+import { githubChecklist } from '../lib/github.mjs';
 import { nest } from '../lib/nest.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
 import { gapList, standard } from '../lib/standard.mjs';
@@ -41,6 +43,7 @@ const COMMANDS = {
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
   finalize: { args: 0, check: true, run: (dir) => finalize(dir) },
+  'github-checklist': { args: 0, run: (dir) => githubChecklist(dir) },
   standard: {
     args: 0,
     options: {
