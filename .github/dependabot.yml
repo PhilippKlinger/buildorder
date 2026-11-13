@@ -46,3 +46,7 @@ updates:
       docker:
         patterns:
           - "*"
+    ignore:
+      # The image follows the Python line the Django LTS supports.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor"]

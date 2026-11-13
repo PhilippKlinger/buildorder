@@ -116,6 +116,13 @@ test('react starter: every dependency is pinned exactly and the lockfile exists'
   for (const [name, version] of Object.entries(deps)) assert.equal(lock.packages[`node_modules/${name}`]?.version, version, name);
 });
 
+test('the react starter overrides minimatch with the patched 11.0.1', () => {
+  const pkg = JSON.parse(starterFile('package.json'));
+  assert.deepEqual(pkg.overrides, { minimatch: '11.0.1' });
+  const lock = JSON.parse(starterFile('package-lock.json'));
+  assert.equal(lock.packages['node_modules/minimatch'].version, '11.0.1');
+});
+
 test('react starter: .gitattributes forces LF', () => {
   assert.match(starterFile('.gitattributes'), /^\* text=auto eol=lf$/m);
 });
