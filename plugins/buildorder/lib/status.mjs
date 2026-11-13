@@ -2,6 +2,7 @@
 // Read-only and local: no network, no index refresh. A place that cannot be read gets a state, never an error.
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { findCodeRepos } from './detect.mjs';
 import { git, gitResult } from './git.mjs';
 import { normalizePath } from './paths.mjs';
 import { findWorkspaceRoot, loadWorkspace } from './workspace.mjs';
@@ -70,7 +71,11 @@ export function status(dir) {
     .filter((rel) => rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
     .map((rel) => rel.split(sep).join('/'));
   const places = [describe('docs', '.', root, nested), ...repos.map((r) => describe(r.path, r.path, r.abs))];
-  return { root, name: typeof ws.name === 'string' ? ws.name : '', places };
+  const registered = new Set(nested);
+  const warnings = findCodeRepos(root)
+    .filter((path) => !registered.has(path))
+    .map((path) => ({ kind: 'unregistered-repo', path }));
+  return { root, name: typeof ws.name === 'string' ? ws.name : '', places, warnings };
 }
 
 const STATE_TEXT = { missing: 'folder missing', 'not-a-repo': 'not a git repo', unreadable: 'git state unreadable' };
@@ -90,6 +95,11 @@ export function formatStatus(result) {
     const parts = [p.branch, p.changed ? `${p.changed} changed` : 'clean'];
     parts.push(p.upstream ? `${p.upstream}: ${p.ahead} ahead, ${p.behind} behind` : 'no upstream');
     lines.push(`- ${label}: ${parts.join(', ')}`);
+  }
+  for (const w of result.warnings ?? []) {
+    if (w.kind === 'unregistered-repo') {
+      lines.push(`Warning: ${w.path} is a code repo that is not set up in this workspace; adding repos later comes in a later release`);
+    }
   }
   return lines.join('\n') + '\n';
 }
