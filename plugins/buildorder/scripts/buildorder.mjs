@@ -4,8 +4,8 @@
 //   node buildorder.mjs detect [dir]
 //   node buildorder.mjs nest [dir] [name]
 //   node buildorder.mjs status [dir] [--json]   (plain text unless --json)
-//   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]... [--visibility public|private]
-//                                [--with <module>]...   (option modules, recorded on the repo entry)
+//   node buildorder.mjs scaffold [dir] [--lang en|de] [--name <name>] [--repo <path>]... [--visibility [<path>=]public|private]...
+//                                [--with [<path>=]<module>]...   (option modules, recorded on the repo entry; <path>= limits one repo)
 //                                [--new-repo <name>]   (git init -b main of the new project's repo)
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
@@ -50,7 +50,7 @@ const COMMANDS = {
       lang: { type: 'string' },
       name: { type: 'string' },
       repo: { type: 'string', multiple: true },
-      visibility: { type: 'string' },
+      visibility: { type: 'string', multiple: true },
       'new-repo': { type: 'string' },
       with: { type: 'string', multiple: true },
     },
