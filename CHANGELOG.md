@@ -21,6 +21,9 @@ interfaces may change.
 
 - The web-quality rule lists every repo that chose the module.
 - `settings.json` `deny` always wins; init then falls back to the checklist.
+- A public repo gets Dependabot alerts and secret scanning with push protection before its first push; the ruleset follows the push.
+- Removing an overlapping personal or workspace skill moves its folder to `skills-backup/` instead of deleting it.
+- `scaffold` refuses a second `--visibility` default without a path.
 
 ## [1.2.0] - 2026-11-13
 
