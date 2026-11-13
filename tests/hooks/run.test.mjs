@@ -20,6 +20,7 @@ const STUB_KIND = {
   'secret-guard': 'deny',
   'context-inject': 'context',
   'effort-hint': 'context',
+  'version-drift': 'context',
   'compact-guard': 'context',
   'handoff-reminder': 'systemMessage',
 };
@@ -115,7 +116,7 @@ test('real entry point is silent outside a workspace', () => {
 });
 
 test('disabled advisory hook is silent, guards cannot be disabled', () => {
-  const all = ['context-inject', 'effort-hint', 'compact-guard', 'handoff-reminder', 'boundary-guard', 'secret-guard'];
+  const all = ['context-inject', 'effort-hint', 'version-drift', 'compact-guard', 'handoff-reminder', 'boundary-guard', 'secret-guard'];
   const root = makeWorkspace({ hooks: { disabled: all } });
   const run = stubPlugin();
   for (const entry of ['prompt', 'compact', 'stop']) silent(runHook(entry, inputFor(entry, root), { run }));
@@ -128,14 +129,14 @@ test('disabled advisory hook is silent, guards cannot be disabled', () => {
   // Disabling one of the two prompt hooks keeps the other.
   const partial = makeWorkspace({ hooks: { disabled: ['effort-hint'] } });
   const prompt = runHook('prompt', inputFor('prompt', partial), { run });
-  assert.deepEqual(reports(prompt.json).map((r) => r.hook), ['context-inject']);
+  assert.deepEqual(reports(prompt.json).map((r) => r.hook), ['context-inject', 'version-drift']);
 });
 
-test('prompt runs both hints in one output', () => {
+test('prompt runs all hints in one output', () => {
   const root = makeWorkspace();
   const res = runHook('prompt', inputFor('prompt', root), { run: stubPlugin() });
   assert.equal(res.json.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-  assert.deepEqual(reports(res.json).map((r) => r.hook), ['context-inject', 'effort-hint']);
+  assert.deepEqual(reports(res.json).map((r) => r.hook), ['context-inject', 'effort-hint', 'version-drift']);
 });
 
 test('each entry answers in the form of its event', () => {
@@ -494,7 +495,7 @@ test('a failing advisory hook exits 0 without output or stack', () => {
   }
   // One broken prompt hook does not silence the other.
   const prompt = runHook('prompt', inputFor('prompt', root), { run: stubPlugin({ 'effort-hint': BROKEN['sync throw'] }) });
-  assert.deepEqual(reports(prompt.json).map((r) => r.hook), ['context-inject']);
+  assert.deepEqual(reports(prompt.json).map((r) => r.hook), ['context-inject', 'version-drift']);
   assert.equal(prompt.stderr, 'buildorder: effort-hint skipped (Error)\n');
   // A deny from an advisory hook is dropped with a note.
   const deny = runHook('compact', inputFor('compact', root), {
