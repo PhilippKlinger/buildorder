@@ -5,6 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [1.3.1] - 2026-11-13
+
+### Fixed
+
+- `standard` and `plan` default to the visibility recorded in `workspace.json` instead of `public`.
+- `scaffold --without [<path>:]<id>=<reason>` records skipped standard items as deviations per repo.
+- `scaffold` records the plan of a repo with the visibility chosen for it (private deviations were missing).
+- `github-plan` flags repos that would get the same GitHub name (`duplicate name`).
+- `github-checklist` takes `--owner` and `--name` and gives a repo with a non-GitHub origin one sentence instead of commands.
+- `standard` reports `action-pins` as "no workflows yet" when the repo has no workflows, not as unpinned actions.
+- Init asks every question, confirmation and understanding check as a dialog and never ends the turn to wait, so pre-approvals keep holding.
+- Init shows the exact commands of every consent (GitHub, docs repo, skill removal) inside the dialog.
+- Init names `<owner>/<name>` in the consent, offers another name, checks with `gh repo view` that a new name is free and asks for names on a duplicate.
+- Init runs every command from the workspace root, one per call, without `cd`, chains or temp files.
+- Init passes skipped standard items to `scaffold --without`, so deviations reach `workspace.json`.
+- Init shows the option modules (`web-quality`, `versioning`) in the confirmation with the recommendation, not as an interview question.
+
 ## [1.3.0] - 2026-11-13
 
 ### Added
