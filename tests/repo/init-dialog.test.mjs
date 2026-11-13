@@ -32,6 +32,7 @@ test('init asks every question with AskUserQuestion and never ends the turn to w
 test('init runs the understanding check as an AskUserQuestion', () => {
   assert.match(fill, /understanding check/i);
   assert.match(fill, /`AskUserQuestion`[^.]*(correct|understand)/i);
+  assert.match(fill, /"Correct" and "Fix something"/);
   assert.match(fill, /the same turn|without ending the turn/i);
 });
 
@@ -90,5 +91,41 @@ test('init gives every check at least two options and never continues without an
 });
 
 test('init pre-approves the assess skill', () => {
-  assert.ok(frontmatter(raw)['allowed-tools'].includes('Skill(buildorder:assess)'));
+  // Skill(name) is an exact match; init calls assess with the repo as argument, so it needs the prefix form.
+  const tools = frontmatter(raw)['allowed-tools'];
+  assert.ok(tools.includes('Skill(buildorder:assess *)'));
+  assert.ok(!tools.includes('Skill(buildorder:assess)'));
+});
+
+test('no AskUserQuestion in the skill is written with one option plus "Other"', () => {
+  // The N1 pattern: `(correct, or "Other" to correct me)` is one option, so the dialog never arrived.
+  assert.doesNotMatch(text, /correct, or "Other"/i);
+  assert.doesNotMatch(text, /\(\s*[^(),;]{1,40},?\s+or\s+"Other"/i);
+  assert.doesNotMatch(text, /(one|single) option/i);
+  // Every AskUserQuestion that names options in a parenthesis names at least two before "Other".
+  for (const m of text.matchAll(/AskUserQuestion`\s*\((?:options:\s*)?([^)]*)\)/g)) {
+    const options = m[1].split(';')[0].replace(/"Other"[^,;]*/g, '').split(/,|\bor\b/).map((x) => x.trim()).filter(Boolean);
+    assert.ok(options.length >= 2, `one option only: ${m[0]}`);
+  }
+});
+
+test('init names two options for the new-project question', () => {
+  const idea = step('1. Unless the start text answers it', '2. One `AskUserQuestion` block');
+  assert.match(idea, /"Describe it"/);
+  assert.match(idea, /"Use the start text"|example ideas/);
+});
+
+test('init consents that must show their commands include nest and the safeDirectory command', () => {
+  assert.match(head, /Every consent that runs commands \([^)]*`nest`[^)]*`safeDirectory`/);
+});
+
+test('init settles names before the checklist and passes the final names to every checklist call', () => {
+  const order = ['github-plan . --owner', 'Name check', 'github-checklist . --owner', 'One consent per repo', 'Run the consented commands', '--done <path>=<step>']
+    .map((k) => github.indexOf(k));
+  assert.ok(order.every((i) => i >= 0), order.join());
+  assert.deepEqual(order, [...order].sort((a, b) => a - b), 'plan, names, checklist, consent, execute, done');
+  assert.match(github, /github-checklist \. --owner <login> \[--name <path>=<name>\]\.\.\. --done <path>=<step>/);
+  // Nothing reruns the checklist after a rename: it is written once, after the names are settled.
+  assert.doesNotMatch(github, /run `github-checklist` again|`github-checklist` and `github-plan` again|check, `github-checklist`/);
+  assert.match(github, /with a new name[^.]*repeat the name check and `github-plan`[^.]*ask the consent again/i);
 });

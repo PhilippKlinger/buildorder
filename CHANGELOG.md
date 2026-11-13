@@ -22,6 +22,11 @@ interfaces may change.
 - Init runs every command from the workspace root, one per call, without `cd`, chains or temp files.
 - Init passes skipped standard items to `scaffold --without`, so deviations reach `workspace.json`.
 - Init shows the option modules (`web-quality`, `versioning`) in the confirmation with the recommendation, not as an interview question.
+- Init settles every GitHub name before it writes the checklist and passes `--owner` and `--name` to every `github-checklist` call, including the final `--done`, so a renamed repo keeps its name.
+- Init asks the understanding check and the new-project question with two real options, and pre-approves `Skill(buildorder:assess *)` so the call with an argument matches.
+- Init lists `nest` and the `safeDirectory` command among the consents that show their commands, and says what a new name in the consent does.
+- `github-plan` keeps the original skip reason beside `duplicate name` (for example `duplicate name; no visibility`).
+- `github-checklist` refuses `--name` and `--done` for a repo with a non-GitHub origin before it writes, and writes no ruleset without checks for such a repo.
 
 ## [1.3.0] - 2026-11-13
 

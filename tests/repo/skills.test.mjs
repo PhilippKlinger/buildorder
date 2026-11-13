@@ -90,8 +90,8 @@ test('init pre-approves only exact read-only CLI commands: no git, no write comm
   for (const rule of rules) {
     const m = rule.match(/^(Bash|PowerShell)\((.*)\)$/);
     if (!m) {
-      // Skill(buildorder:assess): assess writes only its audit file, and that write still asks.
-      assert.ok(['Read', 'Grep', 'Glob', 'AskUserQuestion', 'Skill(buildorder:assess)'].includes(rule), `unexpected tool rule: ${rule}`);
+      // Skill(buildorder:assess *): prefix form, init passes the repo as argument; assess writes only its audit file, and that write still asks.
+      assert.ok(['Read', 'Grep', 'Glob', 'AskUserQuestion', 'Skill(buildorder:assess *)'].includes(rule), `unexpected tool rule: ${rule}`);
       continue;
     }
     const cmd = m[2];

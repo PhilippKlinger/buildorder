@@ -3,7 +3,7 @@ name: init
 description: Sets up a Buildorder workspace in this folder in one guided run, for a new project (empty folder), one existing repo or a folder with several repos. Checks the folder, runs a short interview, shows the plan and writes only after the user's OK.
 argument-hint: "[what the project is about]"
 disable-model-invocation: true
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), Read, Grep, Glob, AskUserQuestion, Skill(buildorder:assess)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), Read, Grep, Glob, AskUserQuestion, Skill(buildorder:assess *)
 ---
 
 # Init
@@ -22,7 +22,7 @@ turn to wait for an answer. Free text answers go through the automatic "Other" o
 questions per call (the question budgets below stay). Every `AskUserQuestion` has at least two options; the
 understanding check always offers "Correct" and "Fix something" (translate the labels). If a dialog cannot be shown or
 returns no answer, stop and ask again; never continue as if the person had confirmed. If the person declines a write, show it and stop.
-**Consents show their commands:** the person may see only the dialog. Every consent that runs commands (the GitHub step
+**Consents show their commands:** the person may see only the dialog. Every consent that runs commands (`nest`, the `safeDirectory` command, the GitHub step
 per repo, the docs repo, a skill removal) puts the exact commands into the dialog: in the `preview` of the "yes"
 option, one command per line, quoted as below, or in the question text when there is no preview. Never refer to "the
 commands above".
@@ -103,8 +103,8 @@ No wildcard, no other path, no other command. If the target exists, stop and say
 move the folder back to `<folder>` (`mv -n -- '<backup>/<name>-<YYYY-MM-DD>' '<folder>'` or `Move-Item` with the two paths swapped).
 
 **New project:**
-1. Unless the start text answers it, one `AskUserQuestion` with a free-text question (the answer arrives through
-   "Other"): "Idea, audience and when it is done, in 2–3 sentences."
+1. Unless the start text answers it, one `AskUserQuestion` with a free-text question: "Idea, audience and when it is done, in 2–3 sentences."
+   Options: "Describe it" (the description arrives through "Other") and "Use the start text" when there is one, else two short example ideas from the folder name.
 2. One `AskUserQuestion` block:
    - Stack: `django`, `python`, `go`, `react`, `angular` (supported, with a tested starter) or another stack (workspace and stack-independent CI only).
    - Visibility: `public` or `private`. Public repos get CodeQL, Dependency Review and push protection for free;
@@ -187,7 +187,7 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
 
 - **Existing project:** run `/buildorder:assess '<repo>'` first. Then run the understanding check in the same turn: state "This is how I understand the
   project": at most 10 lines (purpose and audience, structure, build, today's deploy path with evidence, external
-  services, the chosen deploy target against the evidence, contradictions marked). End with an `AskUserQuestion` (correct, or "Other" to correct me), without ending the turn.
+  services, the chosen deploy target against the evidence, contradictions marked). End with an `AskUserQuestion` with the options "Correct" and "Fix something" ("Other" takes a free correction), without ending the turn.
   Only then write the backlog: the rows of the `--gaps` output into the short list and its block below the `---`,
   then the tasks the audit proposes, each pointing to the audit file.
 - **New project:** the backlog from the interview: the first feature in 2–4 tasks.
@@ -208,27 +208,29 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
    1. Run `gh auth status`. If `gh` is missing or not logged in, run `github-checklist .` as before (add
       `--repo <owner/name>` when the user named the GitHub repo in the interview) and add one friendly sentence:
       "To let me set this up next time, run `gh auth login`." Then go to section 6 (Close).
-   2. Logged in: read the owner with `gh api user --jq .login`. Run `github-checklist .` first: it writes the ruleset
-      files the settings commands need. Run it as `github-checklist . --owner <login> [--name <path>=<name>]...` (`--name` `.=<name>` names the docs
-      repo) so the commands carry the real owner and names, not `OWNER/...`; without `gh` login leave `--owner` out.
-      Then run `github-plan . --owner <login> --docs [--name <path>=<name>]...` with the same `--owner` and `--name`
-      (read-only, calls no `gh`; `--docs` adds the `docs` entry for sub-step 3, Docs repo). Each repo has `exists` (true when its origin is on GitHub) and the steps in the order to run
-      them (`create`, `push`, `settings`; a public repo lists `create`, `settings`, `push`, `settings`), each with
-      `commands` or a `skipped` reason; a settings step also has `ticks`, the `--done` step of each of its commands. If `create` is skipped with `invalid name`, the folder name is no valid
-      GitHub repo name: ask for one and run `github-plan` again with `--name <path>=<name>`. If it is skipped with
+   2. Logged in: read the owner with `gh api user --jq .login`. Settle the names first, then write the checklist once.
+      Run `github-plan . --owner <login> --docs [--name <path>=<name>]...` (read-only, calls no `gh`; `--name` `.=<name>` names
+      the docs repo; `--docs` adds the `docs` entry for sub-step 3, Docs repo). Each repo has `exists` (true when its origin
+      is on GitHub) and the steps in the order to run them (`create`, `push`, `settings`; a public repo lists `create`,
+      `settings`, `push`, `settings`), each with `commands` or a `skipped` reason; a settings step also has `ticks`, the
+      `--done` step of each of its commands. If `create` is skipped with `invalid name`, the folder name is no valid GitHub
+      repo name: ask for one and run `github-plan` again with `--name <path>=<name>`. If it is skipped with
       `duplicate name`, several repos would get the same GitHub name: ask for a name for each repo of the group
-      (`AskUserQuestion`, the folder name as the recommendation), then run `github-checklist` and `github-plan` again
-      with every chosen `--name`.
+      (`AskUserQuestion`, the folder name as the recommendation), then run `github-plan` again with every chosen `--name`.
       **Name check:** for each target that `github-plan` would create (every `create` step without a skip, the docs
       repo included), run `gh repo view '<owner>/<name>'` once per call. It only reads; run it without pre-approval and
       let it ask for permission as usual. If the repo exists, say so in one friendly sentence and ask for another name, then
-      repeat the check, `github-checklist` and `github-plan` with the new `--name`.
+      repeat the check and `github-plan` with the new `--name`.
+      **Checklist:** only when every name is settled, run `github-checklist . --owner <login> [--name <path>=<name>]...`
+      with the same `--owner` and `--name` as for `github-plan` (every chosen name, `.=<name>` for the docs repo). It writes the ruleset files the
+      settings commands need and the checklist, so the commands carry the real owner and names, not `OWNER/...`. Run it once
+      here and never rerun it after a rename: an existing checklist stays as it is.
    3. **Docs repo:** the workspace root is opt-in, and the docs repo has its own consent, separate from the code
       repos. Ask "Create a GitHub remote for the docs, or keep them local?" with the exact command from the
       plan's `docs` entry in the `preview` of the "yes" option, for example
       `gh repo create '<owner>/<docs name>' --private --source '.' --remote origin`; default: local only. The docs repo is always private, gets the remote with no push (the first docs commit comes
       with `/buildorder:handoff`) and no settings commands. If its `create` is skipped, name the reason and do not ask.
-   4. **One consent per repo.** The consent names the target `<owner>/<name>` and says that "Other" takes a different name. Put the full command
+   4. **One consent per repo.** The consent names the target `<owner>/<name>` and says that "Other" takes a different name. With a new name, repeat the name check and `github-plan`, then ask the consent again with the new commands; never edit a planned command by hand. The checklist keeps the old name then; say so. Put the full command
       list of that repo into the `preview` of the "yes" option, one command per line (skipped steps with their reason in
       the question text), and ask: yes / no / settings only when the plan marks the repo `exists: true` (it is already on GitHub); otherwise
       yes / no, because its settings would go to a repo that does not exist yet or belongs to someone else. On "no"
@@ -243,7 +245,7 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
       it was refused or blocked. For `create` or `push`, fall back to the checklist for that repo, and continue with
       the next repo. The settings commands are independent: continue with the next settings command of the same
       repo. Never work around it with another tool or command.
-   7. Record the result: run `github-checklist . --done <path>=<step>` once with a `--done` for every step that
+   7. Record the result: run `github-checklist . --owner <login> [--name <path>=<name>]... --done <path>=<step>` once, with the same `--owner` and every chosen `--name` as in sub-step 2 (a declined or failed repo keeps its name), and with a `--done` for every step that
       succeeded: `create`, `push`, `settings` when every settings command succeeded, otherwise `settings:<name>` for
       each one that did (its entry in `ticks`), and `--done .=create` for the docs repo. Finished steps appear ticked
       with the date, open ones with the command. If it reports `changed`, the checklist was edited by hand since
