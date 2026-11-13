@@ -50,3 +50,15 @@ test('versioning is an option module that lives in the plugin', () => {
   assert.equal(item.where, 'plugin');
   assert.equal(item.summary, 'Version drift warning on release prompts (hook version-drift)');
 });
+
+test('web-quality is an option module for react and angular', () => {
+  const item = loadModel().items.find((i) => i.id === 'web-quality');
+  assert.deepEqual(item, {
+    id: 'web-quality',
+    class: 'option',
+    provider: 'web-quality',
+    where: 'workspace',
+    stacks: ['react', 'angular'],
+    summary: 'Performance, SEO and accessibility: a rule for the frontend sources and the web-quality skill',
+  });
+});

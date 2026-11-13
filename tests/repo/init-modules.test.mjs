@@ -30,3 +30,8 @@ test('init passes the chosen option modules to plan, scaffold and standard', () 
   assert.match(write, /scaffold \. --lang <lang> --repo "<repo>" --visibility <v> \[--with <module>\]\.\.\./);
   assert.match(write, /every `--with` of the plan/);
 });
+
+test('init recommends web-quality for react and angular', () => {
+  assert.match(confirmation, /and `web-quality` when the stack is `react` or `angular`/);
+  assert.match(confirmation, /`\.claude\/rules\/web-quality\.md`/);
+});

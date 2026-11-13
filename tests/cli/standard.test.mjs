@@ -280,3 +280,10 @@ test('plan accepts --with and stays read-only', () => {
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /^buildorder: 'codeql' is not an option \(class mandatory\)\n$/);
 });
+
+test('plan refuses --with web-quality for a go repo', () => {
+  const dir = localGit(codeRepo('standard plan wq go', { 'go.mod': 'module api\n' }));
+  const r = cli('plan', dir, '--with', 'web-quality');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^buildorder: 'web-quality' applies to react, angular only\n$/);
+});
