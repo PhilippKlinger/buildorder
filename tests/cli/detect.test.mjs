@@ -416,3 +416,16 @@ test('detect shortens long skill descriptions', () => {
   assert.equal(d.skills.personal[0].description.length, 200);
   assert.equal(d.skills.repos[0].skills[0].description.length, 200);
 });
+
+test('detect shortens long skill names too (review 1.3 I6)', () => {
+  const home = fakeHome();
+  const long = 'n'.repeat(5000);
+  write(home, { '.claude/skills/named/SKILL.md': `---\nname: ${long}\ndescription: short\n---\n` });
+  const root = tmp('long name');
+  const repo = codeRepo(null, null, { dir: join(root, 'app') });
+  write(repo, { '.claude/skills/named/SKILL.md': `---\nname: ${long}\ndescription: short\n---\n` });
+  const d = detect(root, { home });
+  assert.equal(d.skills.personal[0].name, 'n'.repeat(64));
+  assert.equal(d.skills.repos[0].skills[0].name.length, 64);
+  assert.equal(d.skills.personal[0].description, 'short');
+});

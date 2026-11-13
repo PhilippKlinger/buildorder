@@ -299,7 +299,9 @@ export function frontmatter(text) {
   return out;
 }
 
-const DESCRIPTION_MAX = 200; // skill texts are untrusted data that reach Claude's context
+// Skill texts are untrusted data that reach Claude's context: both are cut to a safe length.
+const DESCRIPTION_MAX = 200;
+const NAME_MAX = 64;
 
 /** Code repos below `root` (`/`-separated relative paths), as `detect` finds them. */
 export function findCodeRepos(root) {
@@ -325,7 +327,7 @@ function skillsIn(base) {
       continue;
     }
     if (!fm?.name) continue;
-    out.push({ name: fm.name, description: (fm.description ?? '').slice(0, DESCRIPTION_MAX), path });
+    out.push({ name: String(fm.name).slice(0, NAME_MAX), description: String(fm.description ?? '').slice(0, DESCRIPTION_MAX), path });
   }
   return out;
 }
