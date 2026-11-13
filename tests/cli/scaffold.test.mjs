@@ -278,13 +278,27 @@ test('scaffold --with records the option modules on the repo entry', () => {
   codeRepo(null, undefined, { dir: join(dir, 'app') });
   codeRepo(null, { 'README.md': '# notes\n' }, { dir: join(dir, 'notes') });
   scaffold(dir, '--repo', 'app', '--with', 'versioning', '--with', 'versioning');
-  assert.deepEqual(wsOf(dir).repos, [
-    { path: 'app', isCode: true, stacks: ['angular'], standards: { modules: ['versioning'], deviations: [] } },
-  ]);
+  const app = wsOf(dir).repos[0];
+  assert.deepEqual(app.standards.modules.at(-1), 'versioning');
+  assert.equal(app.standards.modules.filter((m) => m === 'versioning').length, 1);
   const plain = tmp('scaffold without');
   codeRepo(null, undefined, { dir: join(plain, 'app') });
   scaffold(plain);
   assert.equal('standards' in wsOf(plain).repos[0], false);
+});
+
+test('scaffold --with versioning keeps docker-cicd for a repo with a Dockerfile', () => {
+  const dir = tmp('scaffold with image');
+  codeRepo(null, {
+    'package.json': JSON.stringify({ dependencies: { '@angular/core': '^20' } }),
+    'angular.json': '{}',
+    Dockerfile: 'FROM node:22\n',
+  }, { dir: join(dir, 'app') });
+  scaffold(dir, '--repo', 'app', '--with', 'versioning');
+  const { standards } = wsOf(dir).repos[0];
+  assert.deepEqual(standards.modules, ['angular', 'docker-cicd', 'versioning']);
+  assert.ok(Array.isArray(standards.deviations));
+  assert.equal(existsSync(join(dir, 'app', '.github')), false, 'no repo file written');
 });
 
 test('scaffold refuses an unknown option before writing anything', () => {

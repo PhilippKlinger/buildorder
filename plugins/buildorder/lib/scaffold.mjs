@@ -7,7 +7,7 @@ import { BUILDORDER_VERSION, PLUGIN_ROOT, detect, safeName, validName } from './
 import { readJson, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
 import { normalizePath, relativeTo } from './paths.mjs';
-import { VISIBILITIES, loadModel, optionModules } from './standard.mjs';
+import { VISIBILITIES, loadModel, optionModules, standard } from './standard.mjs';
 import { loadWorkspace } from './workspace.mjs';
 
 /** The doc-map: `docs` key in workspace.json -> file in the workspace root. */
@@ -71,6 +71,21 @@ function refusal(d) {
   return null;
 }
 
+/**
+ * The standards to record for a repo with option modules: the modules of its read-only plan (stack module,
+ * docker-cicd when an image is planned), then the options, without duplicates; the plan's deviations.
+ * No repo file is written. A repo that cannot be planned (no code, no git) records the options only.
+ */
+function recorded(root, repo, options) {
+  let plan = { modules: [], deviations: [] };
+  if (repo.isCode) {
+    try {
+      plan = standard(resolve(root, repo.path));
+    } catch { /* not plannable: options only */ }
+  }
+  return { modules: [...new Set([...plan.modules, ...options])], deviations: plan.deviations };
+}
+
 /** The repos to record: all that detect found, or those named in `--repo` (each must be one of them). */
 function pickRepos(root, found, wanted, visibility, modules = []) {
   const entry = (r) => ({
@@ -78,7 +93,7 @@ function pickRepos(root, found, wanted, visibility, modules = []) {
     isCode: r.isCode,
     stacks: r.stacks,
     ...(visibility ? { visibility } : {}),
-    ...(modules.length ? { standards: { modules, deviations: [] } } : {}),
+    ...(modules.length ? { standards: recorded(root, r, modules) } : {}),
   });
   if (!wanted?.length) return found.map(entry);
   const byKey = new Map(found.map((r) => [normalizePath(r.path), r]));
@@ -154,7 +169,7 @@ function ignoreRepos(root, paths, put, skipped) {
  * (repo paths to record; default: every repo detect finds), `visibility` (public|private, recorded on each
  * repo entry; /buildorder:secure reads it), `newRepo` (a folder name: create the new project's code repo
  * there with `git init` on main and record it), `with` (option module ids: each picked repo gets
- * `standards: { modules, deviations: [] }`; validated before anything is written). Without `lang` and `name`, a rerun keeps
+ * the plan modules of the repo plus these as `standards`; validated before anything is written). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * The root becomes a git repo without a commit (`rootRepo`: created | existing), and its .gitignore lists
  * every repo folder plus Claude Code's local settings (`ignored`: the lines added).
