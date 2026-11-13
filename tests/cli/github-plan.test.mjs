@@ -109,3 +109,13 @@ test('github-plan never runs gh and writes no file', () => {
   const src = readFileSync(new URL('../../plugins/buildorder/lib/github.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(src, /spawn|execFile|child_process|fetch\(/, 'github.mjs has no process or network call');
 });
+
+test('github-plan skips push and settings when the repo has no origin and is not created', () => {
+  const { root } = ws();
+  const notes = repoOf(plan(root, '--owner', 'o'), 'notes');
+  assert.deepEqual(notes.steps, [
+    { kind: 'create', skipped: 'no visibility' },
+    { kind: 'push', skipped: 'no origin' },
+    { kind: 'settings', skipped: 'no origin' },
+  ]);
+});

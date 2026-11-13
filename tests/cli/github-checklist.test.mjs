@@ -2,7 +2,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, gitIn, tmp } from '../helpers/cli.mjs';
 import { multiRepoWorkspace } from '../helpers/workspace.mjs';
@@ -221,4 +221,27 @@ test('github-checklist --done settings ticks the settings, and an unknown path o
     assert.match(r.stderr, /--done/, bad);
     assert.equal(existsSync(join(w, 'docs')), false, `no write for ${bad}`);
   }
+});
+
+test('github-checklist --done ticks steps in an unchanged existing checklist', () => {
+  const { root } = multi();
+  assert.equal(cli('github-checklist', root).status, 0);
+  const again = cli('github-checklist', root);
+  assert.equal(again.json.files[0].state, 'exists', 'without --done an existing file stays');
+  const r = cli('github-checklist', root, '--done', 'shop/api=create');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json.files[0], { path: 'docs/github-settings.md', state: 'updated' });
+  assert.ok(sectionOf(read(root, 'docs/github-settings.md'), 'shop/api').includes(`- [x] Repo created on GitHub (${todayIso()})`));
+});
+
+test('github-checklist --done leaves a checklist the person edited untouched', () => {
+  const { root } = multi();
+  assert.equal(cli('github-checklist', root).status, 0);
+  const path = join(root, 'docs', 'github-settings.md');
+  const edited = `${readFileSync(path, 'utf8')}\nMy own note.\n`;
+  writeFileSync(path, edited);
+  const r = cli('github-checklist', root, '--done', 'shop/api=create');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json.files[0], { path: 'docs/github-settings.md', state: 'changed' });
+  assert.equal(readFileSync(path, 'utf8'), edited);
 });

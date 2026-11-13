@@ -166,6 +166,8 @@ function workspaceRepos(root, ws) {
   return found;
 }
 
+const lf = (text) => text.replace(/\r\n/g, '\n');
+
 const slashes = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '');
 
 /** `<path>=<value>` as `[path, value]`; throws naming `flag` when it has no `=` or an empty side. */
@@ -187,7 +189,9 @@ const today = () => {
  * `visibility` comes from the repo entry (null when unknown); a private repo gets no secret scanning commands.
  * `repo` (`owner/name`, from the interview) names the repo when it has no GitHub origin yet; a local origin wins.
  * `done` (`<path>=<create|push|settings>` entries) ticks those steps with today's date and lists the create and push
- * steps of every repo; without it the checklist is the plain settings list.
+ * steps of every repo; without it the checklist is the plain settings list. With `done` an existing checklist is
+ * ticked in place (state `updated`) only if it equals the plain text byte for byte (CRLF as LF), else it stays
+ * (state `changed`).
  * Throws outside a Buildorder workspace, for a malformed `repo` and for an unknown `done` path or step (before any write).
  */
 export function githubChecklist(dir, { repo: given, done = [] } = {}) {
@@ -223,7 +227,15 @@ export function githubChecklist(dir, { repo: given, done = [] } = {}) {
   };
   const files = Object.entries(content).map(([path, text]) => {
     const abs = join(root, ...path.split('/'));
-    if (existsSync(abs)) return { path, state: 'exists' };
+    if (existsSync(abs)) {
+      if (done.length === 0) return { path, state: 'exists' };
+      // With --done: tick in place only when the file is still exactly the plain checklist, else leave the person's edits.
+      if (path !== CHECKLIST) return { path, state: 'exists' };
+      const plain = markdown(view, lang, false);
+      if (lf(readFileSync(abs, 'utf8')) !== lf(plain)) return { path, state: 'changed' };
+      writeFileSync(abs, text);
+      return { path, state: 'updated' };
+    }
     mkdirSync(join(root, 'docs'), { recursive: true });
     writeFileSync(abs, text, { flag: 'wx' });
     return { path, state: 'created' };
@@ -261,6 +273,11 @@ export function githubPlan(dir, { owner, name = [], docs = false } = {}) {
     if (origin) steps.push({ kind: 'create', skipped: 'origin exists' });
     else if (!visibility) steps.push({ kind: 'create', skipped: 'no visibility' });
     else steps.push({ kind: 'create', commands: [createCommand(slug, visibility, path)] });
+    // Without an origin and without a create step there is nothing to push to or to configure.
+    if (!origin && !steps[0].commands) {
+      steps.push({ kind: 'push', skipped: 'no origin' }, { kind: 'settings', skipped: 'no origin' });
+      return { path, slug, visibility, steps };
+    }
     const hasMain = gitResult(abs, ['rev-parse', '--verify', '--quiet', 'refs/heads/main']).ok;
     const clean = gitResult(abs, ['status', '--porcelain']);
     if (!hasMain) steps.push({ kind: 'push', skipped: 'no main' });
