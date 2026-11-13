@@ -48,8 +48,8 @@ export const RULESET_BODY = {
   ],
 };
 
-// A GitHub origin: `github.com` is the host, right after the scheme and the user (`https://github.com/o/x`,
-// `git@github.com:o/x`, `ssh://git@github.com:22/o/x`), never `github.com` further down the path of another host.
+// A GitHub origin: `github.com` is the host, right after the scheme and the user (`https://github.com/o/x`, the scp
+// form `<user>@github.com:o/x`, `ssh://<user>@github.com:22/o/x`), never `github.com` further down another host's path.
 const GITHUB_REMOTE = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@/:]+@)?github\.com(?::\d+)?[:/]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i;
 
 /** The origin of the repo at `abs`: `{ url, github }`, `url` masked (null without origin), `github` the GitHub match or null. */
