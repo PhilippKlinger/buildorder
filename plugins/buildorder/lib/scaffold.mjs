@@ -2,7 +2,7 @@
 // It never overwrites: an existing file is reported as skipped, so a second run changes nothing.
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { BUILDORDER_VERSION, PLUGIN_ROOT, detect, safeName, validName } from './detect.mjs';
 import { readJson, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
@@ -128,26 +128,38 @@ export function perRepo(values, paths, allowed = null, { many = false, option = 
   return result;
 }
 
+/** The repo of `found` (detect's list) that `wanted` names, compared in normalized form; throws when there is none. */
+function foundRepo(root, found, wanted) {
+  const rel = relativeTo(resolve(root, wanted), root);
+  const repo = rel ? found.find((r) => normalizePath(r.path) === rel) : undefined;
+  if (!repo) throw new Error(`--repo '${wanted}' is not a git repo that detect found in ${root}`);
+  return repo;
+}
+
 /**
  * The repos to record: all that detect found, or those named in `--repo` (each must be one of them).
- * `visibility`: Map<path, value>; `modules`: Map<path, option module ids>.
+ * `visibility`: Map<path, value>; `modules`: Map<path, option module ids>. Paths are compared in normalized
+ * form (lower case on Windows), and each entry keeps detect's path as it is on disk.
  */
 function pickRepos(root, found, wanted, visibility = new Map(), modules = new Map()) {
-  const entry = (r) => ({
-    path: r.path,
-    isCode: r.isCode,
-    stacks: r.stacks,
-    ...(visibility.has(r.path) ? { visibility: visibility.get(r.path) } : {}),
-    ...(modules.get(r.path)?.length ? { standards: recorded(root, r, modules.get(r.path)) } : {}),
-  });
+  const byPath = (m) => new Map([...m].map(([k, v]) => [normalizePath(k), v]));
+  const vis = byPath(visibility);
+  const mods = byPath(modules);
+  const entry = (r) => {
+    const key = normalizePath(r.path);
+    return {
+      path: r.path,
+      isCode: r.isCode,
+      stacks: r.stacks,
+      ...(vis.has(key) ? { visibility: vis.get(key) } : {}),
+      ...(mods.get(key)?.length ? { standards: recorded(root, r, mods.get(key)) } : {}),
+    };
+  };
   if (!wanted?.length) return found.map(entry);
-  const byKey = new Map(found.map((r) => [normalizePath(r.path), r]));
   const picked = new Map();
   for (const w of wanted) {
-    const rel = relativeTo(resolve(root, w), root);
-    const repo = rel ? byKey.get(rel) : undefined;
-    if (!repo) throw new Error(`--repo '${w}' is not a git repo that detect found in ${root}`);
-    picked.set(repo.path, entry(repo));
+    const repo = foundRepo(root, found, w);
+    picked.set(normalizePath(repo.path), entry(repo));
   }
   return [...picked.values()];
 }
@@ -239,8 +251,10 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const root = d.dir;
   const why = refusal(d);
   if (why) throw new Error(why);
-  // Per-repo values are checked against the repos to record, before anything is written.
-  const chosen = (repo?.length ? repo.map((w) => relativeTo(resolve(root, w), root)).filter((p) => p !== null) : d.repos.map((r) => r.path))
+  // Per-repo values are checked against the repos to record, before anything is written. `--repo` values
+  // resolve to detect's paths (as they are on disk), so the values stay with their repo on a case-insensitive disk.
+  const isNew = (w) => newRepo !== undefined && normalizePath(w) === normalizePath(newRepo);
+  const chosen = (repo?.length ? repo.filter((w) => !isNew(w)).map((w) => foundRepo(root, d.repos, w).path) : d.repos.map((r) => r.path))
     .concat(newRepo === undefined ? [] : [newRepo]);
   const visByRepo = perRepo(visValues, chosen, VISIBILITIES, { option: '--visibility' });
   const withByRepo = perRepo(withIds, chosen, null, { many: true });
@@ -300,10 +314,15 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
     writeJson(file, { ...kept, templateHashes: { ...kept?.templateHashes, ...records } });
   }
   // Every repo folder: those on record (a kept workspace.json included) and the unrecorded ones detect found.
-  const folders = [...(Array.isArray(existing?.repos) ? existing.repos : []), ...repos, ...d.repos]
-    .map((r) => (typeof r?.path === 'string' ? relativeTo(resolve(root, r.path), root) : null))
-    .filter((p) => p !== null)
-    .sort();
+  // Deduplicated by the normalized path and written as the path is on disk, so a clone on a case-sensitive disk matches too.
+  const byKey = new Map();
+  for (const r of [...(Array.isArray(existing?.repos) ? existing.repos : []), ...repos, ...d.repos]) {
+    if (typeof r?.path !== 'string') continue;
+    const abs = resolve(root, r.path);
+    const key = relativeTo(abs, root);
+    if (key !== null && !byKey.has(key)) byKey.set(key, key === '' ? '' : relative(root, abs).split(sep).join('/'));
+  }
+  const folders = [...byKey.values()].sort();
   const ignored = ignoreRepos(root, folders, put, skipped);
   return { ok: true, dir: root, rootRepo, created, skipped, ignored };
 }

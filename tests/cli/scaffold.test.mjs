@@ -405,3 +405,30 @@ test('the web-quality rule names every repo that chose the module and no other',
   assert.doesNotMatch(rule, /notes/);
   assert.doesNotMatch(rule, /\{\{/);
 });
+
+// --- upper-case repo folders (1.3 review C1): values are keyed by the normalized path everywhere ---
+const UPPER = ['Shop/Api', 'Shop/Web'];
+
+test('scaffold --repo keeps per-repo values for folders with upper-case letters', () => {
+  const { root } = multiRepoWorkspace({ names: UPPER });
+  scaffold(root, '--repo', 'Shop/Api', '--repo', 'Shop/Web', '--visibility', 'private', '--visibility', 'Shop/Web=public',
+    '--with', 'versioning', '--with', 'Shop/Web=web-quality');
+  const by = Object.fromEntries(wsOf(root).repos.map((r) => [r.path, r]));
+  assert.deepEqual(Object.keys(by).sort(), UPPER);
+  assert.equal(by['Shop/Api'].visibility, 'private');
+  assert.equal(by['Shop/Web'].visibility, 'public');
+  assert.ok(by['Shop/Api'].standards.modules.includes('versioning'));
+  assert.ok(by['Shop/Web'].standards.modules.includes('web-quality'));
+  assert.match(read(root, RULE), /"Shop\/Web\/src\//);
+  const ignore = read(root, '.gitignore').split(/\r?\n/);
+  assert.ok(ignore.includes('/Shop/Api/') && ignore.includes('/Shop/Web/'), 'the docs repo ignores the folders as they are on disk');
+});
+
+test('scaffold --repo typed in lower case finds an upper-case folder on Windows', { skip: process.platform !== 'win32' }, () => {
+  const { root } = multiRepoWorkspace({ names: UPPER });
+  scaffold(root, '--repo', 'shop/web', '--visibility', 'public', '--with', 'shop/web=versioning');
+  const [web] = wsOf(root).repos;
+  assert.equal(web.path, 'Shop/Web', 'the path as it is on disk');
+  assert.equal(web.visibility, 'public');
+  assert.ok(web.standards.modules.includes('versioning'));
+});
