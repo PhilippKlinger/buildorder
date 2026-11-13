@@ -82,3 +82,13 @@ test('init shows option modules in the confirmation, not as an interview questio
   assert.match(confirmation, /never (asked )?as an interview question|never asked in the interview/);
   assert.match(confirmation, /with the recommendation/i);
 });
+
+test('init gives every check at least two options and never continues without an answer', () => {
+  assert.match(head, /every `AskUserQuestion` has at least two options/i);
+  assert.match(head, /"Correct" and "Fix something"/);
+  assert.match(head, /cannot be shown or returns no answer.{0,120}stop and ask again.{0,80}never continue as if the person had confirmed/i);
+});
+
+test('init pre-approves the assess skill', () => {
+  assert.ok(frontmatter(raw)['allowed-tools'].includes('Skill(buildorder:assess)'));
+});

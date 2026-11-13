@@ -12,6 +12,7 @@ interfaces may change.
 - `standard` and `plan` default to the visibility recorded in `workspace.json` instead of `public`.
 - `scaffold --without [<path>:]<id>=<reason>` records skipped standard items as deviations per repo.
 - `scaffold` records the plan of a repo with the visibility chosen for it (private deviations were missing).
+- `init` requires two options per check and pre-approves `assess`; `assess` runs one command per call without `cd` or chains.
 - `github-plan` flags repos that would get the same GitHub name (`duplicate name`).
 - `github-checklist` takes `--owner` and `--name` and gives a repo with a non-GitHub origin one sentence instead of commands.
 - `standard` reports `action-pins` as "no workflows yet" when the repo has no workflows, not as unpinned actions.

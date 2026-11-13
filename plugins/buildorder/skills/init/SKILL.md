@@ -3,7 +3,7 @@ name: init
 description: Sets up a Buildorder workspace in this folder in one guided run, for a new project (empty folder), one existing repo or a folder with several repos. Checks the folder, runs a short interview, shows the plan and writes only after the user's OK.
 argument-hint: "[what the project is about]"
 disable-model-invocation: true
-allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), Read, Grep, Glob, AskUserQuestion
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" detect *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" plan *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" verify *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" github-plan *), Read, Grep, Glob, AskUserQuestion, Skill(buildorder:assess)
 ---
 
 # Init
@@ -19,7 +19,9 @@ Edit and Write for files, and append each `plan --gaps` list to `BACKLOG.md` wit
 **One turn:** the pre-approvals of this skill hold only during the turn in which it runs; after the turn ends, every
 read asks again. So ask every question, confirmation and understanding check with `AskUserQuestion`, and never end the
 turn to wait for an answer. Free text answers go through the automatic "Other" option. Batch questions, at most 4
-questions per call (the question budgets below stay). If the person declines a write, show it and stop.
+questions per call (the question budgets below stay). Every `AskUserQuestion` has at least two options; the
+understanding check always offers "Correct" and "Fix something" (translate the labels). If a dialog cannot be shown or
+returns no answer, stop and ask again; never continue as if the person had confirmed. If the person declines a write, show it and stop.
 **Consents show their commands:** the person may see only the dialog. Every consent that runs commands (the GitHub step
 per repo, the docs repo, a skill removal) puts the exact commands into the dialog: in the `preview` of the "yes"
 option, one command per line, quoted as below, or in the question text when there is no preview. Never refer to "the
