@@ -216,11 +216,11 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
       `--done` step of each of its commands. If `create` is skipped with `invalid name`, the folder name is no valid GitHub
       repo name: ask for one and run `github-plan` again with `--name <path>=<name>`. If it is skipped with
       `duplicate name`, several repos would get the same GitHub name: ask for a name for each repo of the group
-      (`AskUserQuestion`, the folder name as the recommendation), then run `github-plan` again with every chosen `--name`.
+      (`AskUserQuestion`, recommended `<parent>-<folder>`, for example `a-app` for `a/app`, never the duplicated folder name itself, plus a second real name, and "Other"), then run `github-plan` again with every chosen `--name`.
       **Name check:** for each target that `github-plan` would create (every `create` step without a skip, the docs
       repo included), run `gh repo view '<owner>/<name>'` once per call. It only reads; run it without pre-approval and
       let it ask for permission as usual. If the repo exists, say so in one friendly sentence and ask for another name, then
-      repeat the check and `github-plan` with the new `--name`.
+      first run `github-plan` with the new `--name`, which validates it, and only then repeat the check.
       **Checklist:** only when every name is settled, run `github-checklist . --owner <login> [--name <path>=<name>]...`
       with the same `--owner` and `--name` as for `github-plan` (every chosen name, `.=<name>` for the docs repo). It writes the ruleset files the
       settings commands need and the checklist, so the commands carry the real owner and names, not `OWNER/...`. Run it once
@@ -230,7 +230,7 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
       plan's `docs` entry in the `preview` of the "yes" option, for example
       `gh repo create '<owner>/<docs name>' --private --source '.' --remote origin`; default: local only. The docs repo is always private, gets the remote with no push (the first docs commit comes
       with `/buildorder:handoff`) and no settings commands. If its `create` is skipped, name the reason and do not ask.
-   4. **One consent per repo.** The consent names the target `<owner>/<name>` and says that "Other" takes a different name. With a new name, repeat the name check and `github-plan`, then ask the consent again with the new commands; never edit a planned command by hand. The checklist keeps the old name then; say so. Put the full command
+   4. **One consent per repo.** The consent names the target `<owner>/<name>` and says that "Other" takes a different name. With a new name through "Other", first run `github-plan` with the new `--name`, which validates it, and only then `gh repo view`, then ask the consent again with the new commands; never edit a planned command by hand. The checklist keeps the old name then; say so. Put the full command
       list of that repo into the `preview` of the "yes" option, one command per line (skipped steps with their reason in
       the question text), and ask: yes / no / settings only when the plan marks the repo `exists: true` (it is already on GitHub); otherwise
       yes / no, because its settings would go to a repo that does not exist yet or belongs to someone else. On "no"

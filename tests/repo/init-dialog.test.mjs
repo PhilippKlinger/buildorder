@@ -109,6 +109,21 @@ test('no AskUserQuestion in the skill is written with one option plus "Other"', 
   }
 });
 
+test('an AskUserQuestion written as "(`AskUserQuestion`, ...)" names two options', () => {
+  for (const m of text.matchAll(/\(`AskUserQuestion`,\s*([^)]*)\)/g)) {
+    const options = m[1].replace(/"Other"/g, '').split(/,|\band\b|\bor\b|\bplus\b/).map((x) => x.trim()).filter(Boolean);
+    assert.ok(options.length >= 2, `one option only: ${m[0]}`);
+  }
+});
+
+test('init validates a new name with github-plan before gh repo view', () => {
+  assert.match(github, /new name[^.]*"Other"[^.]*first run `github-plan`[^.]*`--name`[^.]*validates[^.]*only then `gh repo view`/is);
+});
+
+test('init recommends <parent>-<folder> on a duplicate name', () => {
+  assert.match(github, /duplicate name[\s\S]*recommend `<parent>-<folder>`[^.]*never the duplicated folder name/i);
+});
+
 test('init names two options for the new-project question', () => {
   const idea = step('1. Unless the start text answers it', '2. One `AskUserQuestion` block');
   assert.match(idea, /"Describe it"/);
