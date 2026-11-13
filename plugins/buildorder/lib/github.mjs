@@ -6,8 +6,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { PLUGIN_ROOT, maskRemote } from './detect.mjs';
+import { writeJson } from './fsx.mjs';
 import { git, gitResult } from './git.mjs';
 import { relativeTo } from './paths.mjs';
+import { WORKSPACE_JSON, textHash } from './scaffold.mjs';
 import { VISIBILITIES } from './standard.mjs';
 import { findWorkspaceRoot, loadWorkspace } from './workspace.mjs';
 
@@ -15,6 +17,9 @@ const CHECKLIST = 'docs/github-settings.md';
 const RULESET = 'docs/github-ruleset.json';
 const REQUIRED_CHECK = 'ci-ok'; // the job every generated ci.yml ends with
 const STEPS = ['create', 'push', 'settings'];
+// What `--done` can tick: the three steps, or one settings command on its own (`settings` means all of them).
+const SETTINGS_PARTS = ['alerts', 'secrets', 'ruleset'];
+const DONE_STEPS = [...STEPS, ...SETTINGS_PARTS.map((n) => `settings:${n}`)];
 
 /** The ruleset for the default branch: pull requests only, no force push, no deletion, `ci-ok` required. */
 export const RULESET_BODY = {
@@ -119,11 +124,17 @@ function section(repo, tx, stepsMode) {
   const cmds = settingsCommands(slug, repo);
   const t = (key) => lines(fill(tx[key], { slug, check: REQUIRED_CHECK, ruleset: RULESET_BODY.name, date }));
   const block = (cmd) => ['  ```', `  ${shellLine(cmd)}`, '  ```'];
-  const ruleset = repo.ciOk
-    ? [...t('ruleset'), ...block(cmds.ruleset)]
-    : [...t('looseRuleset'), ...block(cmds.ruleset), ...t('requireLater'), ...block(cmds.requireLater)];
-  const secrets = cmds.secrets ? [...t('secrets'), ...block(cmds.secrets)] : t('privateSecrets');
-  const settings = [...ruleset, ...secrets, ...t('alerts'), ...block(cmds.alerts), ...t('verify')];
+  // A settings command ticked on its own (`settings:<name>`) shows as done; requiring ci-ok later stays open.
+  const ticked = (name) => done.has(`settings:${name}`);
+  const later = repo.ciOk ? [] : [...t('requireLater'), ...block(cmds.requireLater)];
+  let ruleset;
+  if (ticked('ruleset')) ruleset = [...t('rulesetDone'), ...later];
+  else if (repo.ciOk) ruleset = [...t('ruleset'), ...block(cmds.ruleset)];
+  else ruleset = [...t('looseRuleset'), ...block(cmds.ruleset), ...later];
+  let secrets = t('privateSecrets');
+  if (cmds.secrets) secrets = ticked('secrets') ? t('secretsDone') : [...t('secrets'), ...block(cmds.secrets)];
+  const alerts = ticked('alerts') ? t('alertsDone') : [...t('alerts'), ...block(cmds.alerts)];
+  const settings = [...ruleset, ...secrets, ...alerts, ...t('verify')];
   // Only with --done: the create and push steps, ticked with the date or still open with their command.
   const createOpen = remote ? [] : [...t('createOpen'), ...(visibility ? block(createCommand(slug, visibility, path)) : [])];
   const stepLines = !stepsMode ? [] : [
@@ -140,7 +151,10 @@ function section(repo, tx, stepsMode) {
   ];
 }
 
-function markdown(repos, lang, stepsMode) {
+/** The docs repo (`.`), only once `--done .=create` ticked it: one line, no push and no settings (spec C4). */
+const docsSection = ({ slug, date }, tx) => [`## . (\`${slug}\`)`, '', ...lines(fill(tx.docsCreateDone, { date })), ''];
+
+function markdown(repos, lang, stepsMode, docs = null) {
   const tx = loadTexts(lang);
   return [
     ...lines(tx.title),
@@ -148,6 +162,7 @@ function markdown(repos, lang, stepsMode) {
     ...tx.intro,
     '',
     ...(repos.length ? repos.flatMap((r) => section(r, tx, stepsMode)) : [tx.noRepos, '']),
+    ...(docs ? docsSection(docs, tx) : []),
     ...tx.outro,
     '',
   ].join('\n');
@@ -180,7 +195,7 @@ function workspaceRepos(root, ws) {
   return found;
 }
 
-const lf = (text) => text.replace(/\r\n/g, '\n');
+const isRecord = (r) => r !== null && typeof r === 'object' && !Array.isArray(r);
 
 const slashes = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '');
 
@@ -202,10 +217,13 @@ const today = () => {
  * `{ ok, dir, files: [{ path, state: created | exists }], repos: [{ path, slug, remote, ciOk, visibility }] }`.
  * `visibility` comes from the repo entry (null when unknown); a private repo gets no secret scanning commands.
  * `repo` (`owner/name`, from the interview) names the repo when it has no GitHub origin yet; a local origin wins.
- * `done` (`<path>=<create|push|settings>` entries) ticks those steps with today's date and lists the create and push
- * steps of every repo; without it the checklist is the plain settings list. With `done` an existing checklist is
- * ticked in place (state `updated`) only if it equals the plain text byte for byte (CRLF as LF), else it stays
- * (state `changed`).
+ * `done` (`<path>=<step>` entries: `create`, `push`, `settings` for all settings commands, or one of
+ * `settings:alerts`, `settings:secrets`, `settings:ruleset`; the docs repo `.` has `create` only) ticks those steps
+ * with today's date and lists the create and push steps of every repo; without it the checklist is the plain
+ * settings list. Paths compare in normalized form; the output keeps the recorded path.
+ * Every write of the checklist records its hash in workspace.json (`templateHashes['docs/github-settings.md'].file`,
+ * sha256 with LF, as scaffold and sync record their files). With `done` an existing checklist is rewritten from the
+ * current state (state `updated`) only while its hash equals that record, else it stays (state `changed`).
  * Throws outside a Buildorder workspace, for a malformed `repo` and for an unknown `done` path or step (before any write).
  */
 export function githubChecklist(dir, { repo: given, done = [] } = {}) {
@@ -217,11 +235,19 @@ export function githubChecklist(dir, { repo: given, done = [] } = {}) {
   const lang = ws.language?.docs === 'de' ? 'de' : 'en';
   const found = workspaceRepos(root, ws);
   const doneBy = new Map(found.map((f) => [f.key, new Set()]));
+  let docsDone = false;
   for (const entry of done) {
-    const [path, step] = splitPair(entry, '--done', 'create|push|settings');
+    const [path, step] = splitPair(entry, '--done', 'step');
     const key = keyOf(root, path);
+    if (key === '') {
+      if (step !== 'create') throw new Error('--done: the docs repo has only the step create');
+      docsDone = true;
+      continue;
+    }
     if (!doneBy.has(key)) throw new Error(`--done: unknown repo path '${path}'`);
-    if (!STEPS.includes(step)) throw new Error(`--done: unknown step '${step}' (create, push or settings)`);
+    if (!DONE_STEPS.includes(step)) {
+      throw new Error(`--done: unknown step '${step}' (create, push, settings or settings:<${SETTINGS_PARTS.join('|')}>)`);
+    }
     doneBy.get(key).add(step);
   }
   // `--repo` names one repo; with several candidates (or none) it could name the wrong one.
@@ -235,26 +261,35 @@ export function githubChecklist(dir, { repo: given, done = [] } = {}) {
   }
   const date = today();
   const view = repos.map((r, i) => ({ ...r, done: doneBy.get(found[i].key), date }));
+  const docs = docsDone ? { slug: slugOf(root).slug, date } : null;
   const content = {
-    [CHECKLIST]: markdown(view, lang, done.length > 0),
+    [CHECKLIST]: markdown(view, lang, done.length > 0, docs),
     [RULESET]: JSON.stringify(RULESET_BODY, null, 2) + '\n',
     ...(repos.some((r) => !r.ciOk) ? { [LOOSE_RULESET]: JSON.stringify(LOOSE_BODY, null, 2) + '\n' } : {}),
   };
+  // The hash of the checklist as github-checklist last wrote it: the origins (and so the slugs) change once init
+  // created a repo, so only this record tells an untouched checklist from one the person edited.
+  const hashes = isRecord(ws.templateHashes) ? ws.templateHashes : {};
+  const recorded = isRecord(hashes[CHECKLIST]) ? hashes[CHECKLIST].file : null;
+  let written = null;
   const files = Object.entries(content).map(([path, text]) => {
     const abs = join(root, ...path.split('/'));
     if (existsSync(abs)) {
-      if (done.length === 0) return { path, state: 'exists' };
-      // With --done: tick in place only when the file is still exactly the plain checklist, else leave the person's edits.
-      if (path !== CHECKLIST) return { path, state: 'exists' };
-      const plain = markdown(view, lang, false);
-      if (lf(readFileSync(abs, 'utf8')) !== lf(plain)) return { path, state: 'changed' };
+      if (done.length === 0 || path !== CHECKLIST) return { path, state: 'exists' };
+      // With --done: rewrite only while the file is what github-checklist wrote, else leave the person's edits.
+      if (typeof recorded !== 'string' || textHash(readFileSync(abs, 'utf8')) !== recorded) return { path, state: 'changed' };
       writeFileSync(abs, text);
+      written = text;
       return { path, state: 'updated' };
     }
     mkdirSync(join(root, 'docs'), { recursive: true });
     writeFileSync(abs, text, { flag: 'wx' });
+    if (path === CHECKLIST) written = text;
     return { path, state: 'created' };
   });
+  if (written !== null) {
+    writeJson(join(root, ...WORKSPACE_JSON.split('/')), { ...ws, templateHashes: { ...hashes, [CHECKLIST]: { file: textHash(written) } } });
+  }
   return { ok: true, dir: root, files, repos };
 }
 

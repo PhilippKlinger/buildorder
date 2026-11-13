@@ -24,6 +24,10 @@
   "pushDone": "- [x] `main` pushed ({{date}})",
   "pushOpen": "- [ ] Push `main` to the new repo",
   "settingsDone": "- [x] GitHub settings applied ({{date}})",
+  "rulesetDone": "- [x] Ruleset on the default branch created ({{date}})",
+  "secretsDone": "- [x] Secret scanning and push protection enabled ({{date}})",
+  "alertsDone": "- [x] Dependabot alerts enabled ({{date}})",
+  "docsCreateDone": "- [x] Docs repo created on GitHub, private ({{date}}); its first commit is pushed with `/buildorder:handoff`",
   "noRepos": "No repo is listed in `.claude/workspace.json`.",
   "outro": [
     "Private repos: rulesets need GitHub Pro or higher, secret scanning and push protection need GitHub Secret",

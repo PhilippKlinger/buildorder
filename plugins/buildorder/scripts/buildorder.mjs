@@ -9,7 +9,7 @@
 //                                [--new-repo <name>]   (git init -b main of the new project's repo)
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
-//   node buildorder.mjs github-checklist [dir] [--repo owner/name] [--done <path>=<create|push|settings>]...   (writes docs/github-settings.md and the ruleset; no API call)
+//   node buildorder.mjs github-checklist [dir] [--repo owner/name] [--done <path>=<create|push|settings|settings:alerts|settings:secrets|settings:ruleset>]...   (writes docs/github-settings.md and the ruleset; no API call; the docs repo `.` has create only)
 //   node buildorder.mjs github-plan [dir] --owner <login> [--name <path>=<name>]... [--docs]   (read-only: the create, push and settings commands per repo)
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--with <module>]... [--starter] [--apply]

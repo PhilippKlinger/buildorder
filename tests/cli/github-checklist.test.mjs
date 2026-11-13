@@ -245,3 +245,105 @@ test('github-checklist --done leaves a checklist the person edited untouched', (
   assert.deepEqual(r.json.files[0], { path: 'docs/github-settings.md', state: 'changed' });
   assert.equal(readFileSync(path, 'utf8'), edited);
 });
+
+// --- review 1.3 fixes ---
+const wsJson = (root) => JSON.parse(read(root, '.claude/workspace.json'));
+const lfHash = (text) => createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
+const githubUrl = (slug) => `https://github.com/${slug}.git`;
+
+test('github-checklist records the hash of the checklist it wrote in workspace.json (I1)', () => {
+  const { root } = multi();
+  assert.equal(cli('github-checklist', root).status, 0);
+  const record = wsJson(root).templateHashes['docs/github-settings.md'];
+  assert.deepEqual(record, { file: lfHash(read(root, 'docs/github-settings.md')) });
+});
+
+test('--done ticks the checklist written before init created the repo (I1, real sequence)', () => {
+  const { root } = multi();
+  assert.equal(cli('github-checklist', root).status, 0);
+  assert.match(sectionOf(read(root, 'docs/github-settings.md'), 'shop/api'), /OWNER\/api/);
+  // gh repo create ... --remote origin adds the origin.
+  gitIn(join(root, 'shop', 'api'), 'remote', 'add', 'origin', githubUrl('o/api'));
+  const r = cli('github-checklist', root, '--done', 'shop/api=create', '--done', 'shop/api=push');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json.files[0], { path: 'docs/github-settings.md', state: 'updated' });
+  const md = read(root, 'docs/github-settings.md');
+  const api = sectionOf(md, 'shop/api');
+  assert.match(api, /^shop\/api \(`o\/api`\)$/m);
+  assert.ok(api.includes(`- [x] Repo created on GitHub (${todayIso()})`));
+  assert.ok(api.includes(`- [x] \`main\` pushed (${todayIso()})`));
+  assert.doesNotMatch(api, /OWNER/);
+  assert.equal(wsJson(root).templateHashes['docs/github-settings.md'].file, lfHash(md), 'the rewrite is recorded');
+  const again = cli('github-checklist', root, '--done', 'shop/api=create', '--done', 'shop/api=push', '--done', 'shop/api=settings');
+  assert.equal(again.json.files[0].state, 'updated', 'a second record call ticks again');
+});
+
+test('--done leaves a checklist without a record untouched (I1)', () => {
+  const { root } = multi();
+  assert.equal(cli('github-checklist', root).status, 0);
+  const ws = wsJson(root);
+  delete ws.templateHashes['docs/github-settings.md'];
+  writeFileSync(join(root, '.claude', 'workspace.json'), JSON.stringify(ws, null, 2) + '\n');
+  const before = read(root, 'docs/github-settings.md');
+  const r = cli('github-checklist', root, '--done', 'shop/api=create');
+  assert.deepEqual(r.json.files[0], { path: 'docs/github-settings.md', state: 'changed' });
+  assert.equal(read(root, 'docs/github-settings.md'), before);
+});
+
+test('--done .=create ticks the docs repo in the command shape of the init skill (I2)', () => {
+  const { root } = multi();
+  gitIn(root, 'init', '-q', '-b', 'main');
+  assert.equal(cli('github-checklist', root).status, 0);
+  assert.doesNotMatch(read(root, 'docs/github-settings.md'), /^## \. /m, 'no docs section without --done');
+  gitIn(root, 'remote', 'add', 'origin', githubUrl('o/shop-docs'));
+  gitIn(join(root, 'shop', 'api'), 'remote', 'add', 'origin', githubUrl('o/api'));
+  const r = cli('github-checklist', root, '--done', '.=create', '--done', 'shop/api=create');
+  assert.equal(r.status, 0, r.stderr);
+  const md = read(root, 'docs/github-settings.md');
+  const docs = md.split(/^## /m).find((s) => s.startsWith('. '));
+  assert.ok(docs, 'a docs section');
+  assert.match(docs, /^\. \(`o\/shop-docs`\)$/m);
+  assert.ok(docs.includes(`- [x] Docs repo created on GitHub, private (${todayIso()})`));
+  assert.ok(sectionOf(md, 'shop/api').includes(`- [x] Repo created on GitHub (${todayIso()})`));
+
+  for (const bad of ['.=push', '.=settings']) {
+    const w = multi().root;
+    const refused = cli('github-checklist', w, '--done', bad);
+    assert.equal(refused.status, 1, bad);
+    assert.match(refused.stderr, /--done: the docs repo has only the step create/, bad);
+    assert.equal(existsSync(join(w, 'docs')), false, `no write for ${bad}`);
+  }
+});
+
+test('--done ticks each settings command on its own (M6)', () => {
+  const { root } = multi();
+  const r = cli('github-checklist', root, '--done', 'shop/web=settings:alerts', '--done', 'shop/api=settings:ruleset');
+  assert.equal(r.status, 0, r.stderr);
+  const md = read(root, 'docs/github-settings.md');
+  const web = sectionOf(md, 'shop/web');
+  assert.ok(web.includes(`- [x] Dependabot alerts enabled (${todayIso()})`));
+  assert.doesNotMatch(web, /vulnerability-alerts/);
+  assert.match(web, /secret_scanning/, 'secret scanning stays open');
+  assert.match(web, /repos\/o\/web\/rulesets/, 'the ruleset stays open');
+  const api = sectionOf(md, 'shop/api');
+  assert.ok(api.includes(`- [x] Ruleset on the default branch created (${todayIso()})`));
+  assert.doesNotMatch(api, /--method POST repos\/OWNER\/api\/rulesets/);
+  assert.match(api, /vulnerability-alerts/, 'alerts stay open');
+
+  const bad = multi().root;
+  const refused = cli('github-checklist', bad, '--done', 'shop/web=settings:nope');
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /--done: unknown step 'settings:nope'/);
+});
+
+test('--done finds upper-case repo folders in the recorded spelling and, on Windows, in any case (C1)', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['Shop/Api', 'Shop/Web'] });
+  const r = cli('github-checklist', root, '--done', 'Shop/Api=create');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json.repos.map((x) => x.path).sort(), ['Shop/Api', 'Shop/Web', 'notes']);
+  assert.ok(sectionOf(read(root, 'docs/github-settings.md'), 'Shop/Api').includes('- [x] Repo created on GitHub'));
+  if (process.platform === 'win32') {
+    const lower = multiRepoWorkspace({ registered: true, names: ['Shop/Api', 'Shop/Web'] });
+    assert.equal(cli('github-checklist', lower.root, '--done', 'shop/api=create').status, 0);
+  }
+});
