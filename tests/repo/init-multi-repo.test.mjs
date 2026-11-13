@@ -153,3 +153,8 @@ test('init moves a removed skill to a backup folder instead of deleting it', () 
   assert.match(text, /how to undo it/);
   assert.doesNotMatch(text, /rm -r|Remove-Item/);
 });
+
+test('init jumps to a section by name, never to a bare step next to a numbered sub-list', () => {
+  assert.match(github, /Then go to section 6 \(Close\)\./);
+  assert.doesNotMatch(text, /go to step \d/i);
+});

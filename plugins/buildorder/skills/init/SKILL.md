@@ -172,7 +172,7 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
   then the tasks the audit proposes, each pointing to the audit file.
 - **New project:** the backlog from the interview: the first feature in 2–4 tasks.
 - **Both:** add the task "After the first push: apply the GitHub settings from `docs/github-settings.md`" (for a
-  new project as the first task); step 5 updates it once the GitHub step has run. Record each deviation with its reason, the release style and the personal-data
+  new project as the first task); section 5 updates it once the GitHub step has run. Record each deviation with its reason, the release style and the personal-data
   answer in `DECISIONS.md`. Fill `CLAUDE.md` and the focus of `SPRINT.md`; leave the active sprint table to
   `/buildorder:kickoff`. Remove every `<!-- fill: … -->` marker; check with Grep that none remains.
 
@@ -190,7 +190,7 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
       "To let me set this up next time, run `gh auth login`." Then go to section 6 (Close).
    2. Logged in: read the owner with `gh api user --jq .login`. Run `github-checklist .` first: it writes the ruleset
       files the settings commands need. Then run `github-plan . --owner <login> --docs [--name <path>=<name>]...`
-      (read-only, calls no `gh`; `--docs` adds the `docs` entry for step 3). Each repo has `exists` (true when its origin is on GitHub) and the steps in the order to run
+      (read-only, calls no `gh`; `--docs` adds the `docs` entry for sub-step 3, Docs repo). Each repo has `exists` (true when its origin is on GitHub) and the steps in the order to run
       them (`create`, `push`, `settings`; a public repo lists `create`, `settings`, `push`, `settings`), each with
       `commands` or a `skipped` reason; a settings step also has `ticks`, the `--done` step of each of its commands. If `create` is skipped with `invalid name`, the folder name is no valid
       GitHub repo name: ask for one and run `github-plan` again with `--name <path>=<name>`.
@@ -218,7 +218,7 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
       each one that did (its entry in `ticks`), and `--done .=create` for the docs repo. Finished steps appear ticked
       with the date, open ones with the command. If it reports `changed`, the checklist was edited by hand since
       Buildorder wrote it: name that and leave it as it is.
-   8. Update the backlog task from step 4: drop it when every repo has all its settings applied, otherwise name the
+   8. Update the backlog task from section 4: drop it when every repo has all its settings applied, otherwise name the
       repos whose settings are still open in it.
 
 ## 6. Close
