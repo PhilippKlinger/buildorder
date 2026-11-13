@@ -341,6 +341,8 @@ function failure(root, check, workflows) {
   }
   const pattern = check.workflow?.find((p) => !new RegExp(p).test(workflows));
   if (pattern) return `no workflow matches '${pattern}'`;
+  // Nothing to pin yet: the standard's ci.yml will bring the workflows, so this is a gap, not an unpinned action.
+  if (check.pins && workflows.trim() === '') return 'no workflows yet';
   if (check.pins && !allPinned(workflows)) return 'a workflow action is not pinned to a full commit SHA';
   return null;
 }

@@ -377,3 +377,19 @@ test('a suffix or path tag never takes the tag of another repo', () => {
   assert.equal(new Set(tags).size, tags.length, tags.join(' '));
   assert.ok(tags.every((t) => /^STD-[A-Z0-9]+(-[A-Z0-9]+)*$/.test(t)), tags.join(' '));
 });
+
+// --- 1.3.1 (practice test S2-2) ---
+
+test('action-pins without any workflow does not claim unpinned actions', () => {
+  const dir = repo('standard no workflows');
+  const out = run(dir);
+  const pins = out.items.find((i) => i.id === 'action-pins');
+  assert.equal(pins.state, 'missing');
+  assert.equal(pins.reason, 'no workflows yet');
+  const task = gapList(out).split('\n').find((l) => l.includes('**STD-') && l.includes('pinned'));
+  assert.ok(task?.includes('(no workflows yet)'), task);
+  assert.doesNotMatch(gapList(out), /not pinned/);
+  // With a workflow that does use an unpinned action the old reason stays.
+  write(dir, { '.github/workflows/x.yml': 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n' });
+  assert.match(run(dir).items.find((i) => i.id === 'action-pins').reason, /not pinned to a full commit SHA/);
+});
