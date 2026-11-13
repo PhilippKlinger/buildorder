@@ -68,7 +68,7 @@ It does the following:
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
 5. Pushes nothing unless you consent per repo (see the GitHub step below).
 
-**Several repos:** a folder with several git repos becomes one workspace. `--visibility` and `--with` can be repeated: a value without `=` is the default for every code repo, `<path>=<value>` applies to one repo (a repo without code gets a value only this way) (for example `--visibility private --visibility shop/web=public`). With two or more code repos the gap ids carry a tag from the folder name (`STD-API-01`, `STD-WEB-01`; the whole path if two folders share a name); with one code repo they stay `STD-01`.
+**Several repos:** a folder with several git repos becomes one workspace. `--visibility` and `--with` can be repeated: a value without `=` is the default for every code repo, `<path>=<value>` applies to one repo (a repo without code gets a value only this way) (for example `--visibility private --visibility shop/web=public`). With two or more code repos the gap ids carry a tag from the folder name (`STD-API-01`, `STD-WEB-01`; the whole path if two folders share a name, and a number if the tags are still equal); with one code repo they stay `STD-01`.
 
 **Skill overlap:** if `detect` finds personal or repo skills (`<repo>/.claude/skills`) that overlap with Buildorder's skills, init asks once how to handle each. It never changes repo skills, and removes a personal or workspace skill only after your explicit consent.
 
