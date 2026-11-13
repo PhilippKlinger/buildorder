@@ -199,8 +199,10 @@ Known limits:
 
 ## Limits and safety
 
-- Buildorder never pushes, never creates repositories and never calls the GitHub API at present.
+- Buildorder never pushes and never creates repositories. `/buildorder:init` does not call the GitHub API:
   GitHub settings are a checklist with ready commands that you run.
+- `/buildorder:deploy-gate`, `/buildorder:deps` and `/buildorder:ci-fix` make read-only `gh` calls, each after your
+  permission. For a failed run, excerpts of the CI log enter the model's context.
 - No telemetry. Data leaves your machine only when `/buildorder:radar` fetches the fixed public Claude Code pages
   (WebFetch) and through `gh` commands that you run yourself.
 - Hooks are guardrails, not a guarantee; see [Security model](#security-model) for what they do and their known
