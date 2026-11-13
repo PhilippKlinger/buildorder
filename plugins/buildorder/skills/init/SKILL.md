@@ -91,7 +91,7 @@ Buildorder never changes the content of the repos.
 `~/.claude/skills` or `<root>/.claude/skills` (the home folder and the workspace root; on Windows compared without
 case and with either slash); otherwise offer no removal. The backup folder is `skills-backup` next to it
 (`~/.claude/skills-backup` or `<root>/.claude/skills-backup`, written as an absolute path); the target is
-`<backup>/<name>-<YYYY-MM-DD>`, with `<name>` the folder name and today's date. Put both commands into the `preview` of the "yes" option of the consent dialog (one per line),
+`<backup>/<name>-<YYYY-MM-DD>`, with `<name>` the folder name and today's date. Show both commands before they run, in the `preview` of the "yes" option of the consent dialog (one per line),
 then run them only after the user's explicit consent, one call per command, one skill at a time:
 - Bash: `mkdir -p -- '<backup>'`, then `mv -n -- '<folder>' '<backup>/<name>-<YYYY-MM-DD>'`
 - PowerShell: `New-Item -ItemType Directory -Force -Path '<backup>'`, then
@@ -143,7 +143,7 @@ Show compactly:
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be
   deselected.
 - **Options:** the option modules (`class: option` in the model), each with a one-line summary, off unless chosen and
-  never asked as an interview question: they appear here, with the recommendation, and the person adds or drops them. Recommend `versioning` when the release style is tags with SemVer, and `web-quality`
+  never asked in the interview: they appear here, with the recommendation, as part of the confirmation dialog. Recommend `versioning` when the release style is tags with SemVer, and `web-quality`
   when the stack is `react` or `angular` (it adds the rule `.claude/rules/web-quality.md`); name the evidence. Every module the user accepts becomes one `--with
   <module>` on `plan`, `scaffold` and `standard`; only ids the model lists as options work.
 - **Deviations** with their reasons (`deviations`), and the first backlog tasks.
