@@ -13,6 +13,17 @@ write the texts. Write nothing before the user's OK in step 2, except a `nest` t
 commands run without a prompt; every command that writes asks the user.
 
 **CLI:** every command below runs as `node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" <command> …`.
+**Commands:** run every command from the session's working directory (the workspace root), one command per call:
+never prefix `cd`, never chain with `&&`, `;` or pipes, never use temp files or heredocs to assemble docs. Use Read,
+Edit and Write for files, and append each `plan --gaps` list to `BACKLOG.md` with Edit.
+**One turn:** the pre-approvals of this skill hold only during the turn in which it runs; after the turn ends, every
+read asks again. So ask every question, confirmation and understanding check with `AskUserQuestion`, and never end the
+turn to wait for an answer. Free text answers go through the automatic "Other" option. Batch questions, at most 4
+questions per call (the question budgets below stay). If the person declines a write, show it and stop.
+**Consents show their commands:** the person may see only the dialog. Every consent that runs commands (the GitHub step
+per repo, the docs repo, a skill removal) puts the exact commands into the dialog: in the `preview` of the "yes"
+option, one command per line, quoted as below, or in the question text when there is no preview. Never refer to "the
+commands above".
 **Quoting:** when you show or run a command, put every argument you fill in (a path, a name, `<path>=<value>`) in
 single quotes, never double quotes: single quotes keep blanks, `$` and backticks literal in bash and PowerShell. Only
 `"${CLAUDE_PLUGIN_ROOT}"` keeps its double quotes. A value that holds a single quote itself is not run: name it and
@@ -55,7 +66,7 @@ Applies when `suggestion` is `multi-repo`. It changes the steps below as follows
   code gets a value only through its own `<path>=<value>`. Instead of the existing-project call of step 3, leave out
   `--repo` to record every repo `detect` found (repos without code too, without a standard); for a subset, pass one
   `--repo` per chosen code repo and per repo without code to keep. Run
-  `plan '<repo>' <options of the plan> --gaps` once per code repo and append each list to the backlog; the gap ids
+  `plan '<repo>' <options of the plan> --gaps` once per code repo and append each list to `BACKLOG.md` with Edit; the gap ids
   are already unique (`STD-<TAG>-NN`).
 - **Audit and understanding (step 4):** one `assess` audit per code repo. The understanding check has at most 5
   lines per repo plus 3 lines on the connections between the repos, each stated from files, not guessed.
@@ -80,7 +91,7 @@ Buildorder never changes the content of the repos.
 `~/.claude/skills` or `<root>/.claude/skills` (the home folder and the workspace root; on Windows compared without
 case and with either slash); otherwise offer no removal. The backup folder is `skills-backup` next to it
 (`~/.claude/skills-backup` or `<root>/.claude/skills-backup`, written as an absolute path); the target is
-`<backup>/<name>-<YYYY-MM-DD>`, with `<name>` the folder name and today's date. Show both commands before they run,
+`<backup>/<name>-<YYYY-MM-DD>`, with `<name>` the folder name and today's date. Put both commands into the `preview` of the "yes" option of the consent dialog (one per line),
 then run them only after the user's explicit consent, one call per command, one skill at a time:
 - Bash: `mkdir -p -- '<backup>'`, then `mv -n -- '<folder>' '<backup>/<name>-<YYYY-MM-DD>'`
 - PowerShell: `New-Item -ItemType Directory -Force -Path '<backup>'`, then
@@ -90,7 +101,8 @@ No wildcard, no other path, no other command. If the target exists, stop and say
 move the folder back to `<folder>` (`mv -n -- '<backup>/<name>-<YYYY-MM-DD>' '<folder>'` or `Move-Item` with the two paths swapped).
 
 **New project:**
-1. In chat, unless the start text answers it: "Idea, audience and when it is done, in 2–3 sentences."
+1. Unless the start text answers it, one `AskUserQuestion` with a free-text question (the answer arrives through
+   "Other"): "Idea, audience and when it is done, in 2–3 sentences."
 2. One `AskUserQuestion` block:
    - Stack: `django`, `python`, `go`, `react`, `angular` (supported, with a tested starter) or another stack (workspace and stack-independent CI only).
    - Visibility: `public` or `private`. Public repos get CodeQL, Dependency Review and push protection for free;
@@ -131,7 +143,7 @@ Show compactly:
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be
   deselected.
 - **Options:** the option modules (`class: option` in the model), each with a one-line summary, off unless chosen and
-  never asked in the interview. Recommend `versioning` when the release style is tags with SemVer, and `web-quality`
+  never asked as an interview question: they appear here, with the recommendation, and the person adds or drops them. Recommend `versioning` when the release style is tags with SemVer, and `web-quality`
   when the stack is `react` or `angular` (it adds the rule `.claude/rules/web-quality.md`); name the evidence. Every module the user accepts becomes one `--with
   <module>` on `plan`, `scaffold` and `standard`; only ids the model lists as options work.
 - **Deviations** with their reasons (`deviations`), and the first backlog tasks.
@@ -141,22 +153,28 @@ Show compactly:
 - With `django` and deploy target `container` or `paas`: behind a proxy that terminates TLS, set
   `DJANGO_BEHIND_PROXY=true`.
 
-Ask: set it up like this, or change something. A change goes back into the plan. Write only after the OK.
+Ask with `AskUserQuestion` (options: set it up like this, change something; "Other" takes the change). A change goes
+back into the plan. A standard item the person drops here goes to `scaffold` in step 3 as
+`--without <path>:<id>=<reason>`. Write only after the OK.
 
 ## 3. Write
 
 **New project:**
-1. `scaffold . --lang <lang> --new-repo '<repo>' --visibility <v> [--with <module>]...`: it creates the repo with `git init` on `main`.
+1. `scaffold . --lang <lang> --new-repo '<repo>' --visibility <v> [--with <module>]... [--without <path>:<id>=<reason>]...`: it creates the repo with `git init` on `main`.
 2. `standard '<repo>' <options of the plan> --apply` (including every `--with` of the plan), with a stack module also `--starter`: one commit in the repo, never
    a push. If git has no identity, give the user the two `git config` commands to run, then repeat. If it reports
    `ok: false`, git refused the commit (for example signing or a hook): name the `reason`, let the user fix it,
    then repeat; the rerun commits the files already written.
 
 **Existing project:**
-1. `scaffold . --lang <lang> --repo '<repo>' --visibility <v> [--with <module>]...`: with `--with`, the repo entry records the modules
+1. `scaffold . --lang <lang> --repo '<repo>' --visibility <v> [--with <module>]... [--without <path>:<id>=<reason>]...`: with `--with`, the repo entry records the modules
    in `standards.modules`, because `standard --apply` never runs here
 2. `plan '<repo>' <options of the plan> --gaps`: keep the output for step 4. Never run `standard` here: the repo
    stays unchanged.
+
+Every standard item the person skips in the interview or the confirmation goes to `scaffold` as
+`--without <path>:<id>=<reason>` (`<path>` is the repo path; a repeatable flag), so the deviation lands in
+`workspace.json` and not only in `DECISIONS.md`.
 
 Name the files `scaffold` reports as `skipped` (they existed and were kept). On an error, read the message, fix the
 options and repeat; never rebuild what the CLI writes by hand.
@@ -165,9 +183,9 @@ options and repeat; never rebuild what the CLI writes by hand.
 
 Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `assumptions.md` or become open questions.
 
-- **Existing project:** run `/buildorder:assess '<repo>'` first. Then stop with "This is how I understand the
+- **Existing project:** run `/buildorder:assess '<repo>'` first. Then run the understanding check in the same turn: state "This is how I understand the
   project": at most 10 lines (purpose and audience, structure, build, today's deploy path with evidence, external
-  services, the chosen deploy target against the evidence, contradictions marked). Ask: correct, or correct me.
+  services, the chosen deploy target against the evidence, contradictions marked). End with an `AskUserQuestion` (correct, or "Other" to correct me), without ending the turn.
   Only then write the backlog: the rows of the `--gaps` output into the short list and its block below the `---`,
   then the tasks the audit proposes, each pointing to the audit file.
 - **New project:** the backlog from the interview: the first feature in 2–4 tasks.
@@ -189,18 +207,28 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
       `--repo <owner/name>` when the user named the GitHub repo in the interview) and add one friendly sentence:
       "To let me set this up next time, run `gh auth login`." Then go to section 6 (Close).
    2. Logged in: read the owner with `gh api user --jq .login`. Run `github-checklist .` first: it writes the ruleset
-      files the settings commands need. Then run `github-plan . --owner <login> --docs [--name <path>=<name>]...`
+      files the settings commands need. Run it as `github-checklist . --owner <login> [--name <path>=<name>]...` (`--name` `.=<name>` names the docs
+      repo) so the commands carry the real owner and names, not `OWNER/...`; without `gh` login leave `--owner` out.
+      Then run `github-plan . --owner <login> --docs [--name <path>=<name>]...` with the same `--owner` and `--name`
       (read-only, calls no `gh`; `--docs` adds the `docs` entry for sub-step 3, Docs repo). Each repo has `exists` (true when its origin is on GitHub) and the steps in the order to run
       them (`create`, `push`, `settings`; a public repo lists `create`, `settings`, `push`, `settings`), each with
       `commands` or a `skipped` reason; a settings step also has `ticks`, the `--done` step of each of its commands. If `create` is skipped with `invalid name`, the folder name is no valid
-      GitHub repo name: ask for one and run `github-plan` again with `--name <path>=<name>`.
+      GitHub repo name: ask for one and run `github-plan` again with `--name <path>=<name>`. If it is skipped with
+      `duplicate name`, several repos would get the same GitHub name: ask for a name for each repo of the group
+      (`AskUserQuestion`, the folder name as the recommendation), then run `github-checklist` and `github-plan` again
+      with every chosen `--name`.
+      **Name check:** for each target that `github-plan` would create (every `create` step without a skip, the docs
+      repo included), run `gh repo view '<owner>/<name>'` once per call. It only reads; run it without pre-approval and
+      let it ask for permission as usual. If the repo exists, say so in one friendly sentence and ask for another name, then
+      repeat the check, `github-checklist` and `github-plan` with the new `--name`.
    3. **Docs repo:** the workspace root is opt-in, and the docs repo has its own consent, separate from the code
-      repos. Ask "Create a GitHub remote for the docs, or keep them local?" and show the exact command from the
-      plan's `docs` entry, for example `gh repo create '<owner>/<docs name>' --private --source '.' --remote origin`;
-      default: local only. The docs repo is always private, gets the remote with no push (the first docs commit comes
+      repos. Ask "Create a GitHub remote for the docs, or keep them local?" with the exact command from the
+      plan's `docs` entry in the `preview` of the "yes" option, for example
+      `gh repo create '<owner>/<docs name>' --private --source '.' --remote origin`; default: local only. The docs repo is always private, gets the remote with no push (the first docs commit comes
       with `/buildorder:handoff`) and no settings commands. If its `create` is skipped, name the reason and do not ask.
-   4. **One consent per repo.** Show the full command list of that repo (skipped steps with their reason) and ask:
-      yes / no / settings only when the plan marks the repo `exists: true` (it is already on GitHub); otherwise
+   4. **One consent per repo.** The consent names the target `<owner>/<name>` and says that "Other" takes a different name. Put the full command
+      list of that repo into the `preview` of the "yes" option, one command per line (skipped steps with their reason in
+      the question text), and ask: yes / no / settings only when the plan marks the repo `exists: true` (it is already on GitHub); otherwise
       yes / no, because its settings would go to a repo that does not exist yet or belongs to someone else. On "no"
       leave the repo to the checklist. A repo whose steps are all skipped (for example `non-GitHub origin`) gets no
       question: name the reason.
