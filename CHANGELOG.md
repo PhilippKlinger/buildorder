@@ -11,8 +11,8 @@ interfaces may change.
 
 - `standard` and `plan` default to the visibility recorded in `workspace.json` instead of `public`.
 - `scaffold --without [<path>:]<id>=<reason>` records skipped standard items as deviations per repo.
-- `scaffold` records the plan of a repo with the visibility chosen for it (private deviations were missing).
-- `init` requires two options per check and pre-approves `assess`; `assess` runs one command per call without `cd` or chains.
+- `scaffold` records the plan with the chosen visibility for the repos that get standards (private deviations were missing).
+- `init` requires two options per check and pre-approves `Skill(buildorder:assess *)` so the call with an argument matches; `assess` runs one command per call without `cd` or chains.
 - `github-plan` flags repos that would get the same GitHub name (`duplicate name`).
 - `github-checklist` takes `--owner` and `--name` and gives a repo with a non-GitHub origin one sentence instead of commands.
 - `standard` reports `action-pins` as "no workflows yet" when the repo has no workflows, not as unpinned actions.
@@ -23,7 +23,7 @@ interfaces may change.
 - Init passes skipped standard items to `scaffold --without`, so deviations reach `workspace.json`.
 - Init shows the option modules (`web-quality`, `versioning`) in the confirmation with the recommendation, not as an interview question.
 - Init settles every GitHub name before it writes the checklist and passes `--owner` and `--name` to every `github-checklist` call, including the final `--done`, so a renamed repo keeps its name.
-- Init asks the understanding check and the new-project question with two real options, and pre-approves `Skill(buildorder:assess *)` so the call with an argument matches.
+- Init asks the understanding check and the new-project question with two real options.
 - Init lists `nest` and the `safeDirectory` command among the consents that show their commands, and says what a new name in the consent does.
 - `github-plan` keeps the original skip reason beside `duplicate name` (for example `duplicate name; no visibility`).
 - `github-checklist` refuses `--name` and `--done` for a repo with a non-GitHub origin before it writes, and writes no ruleset without checks for such a repo.
