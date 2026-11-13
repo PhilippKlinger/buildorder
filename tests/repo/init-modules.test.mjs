@@ -24,10 +24,10 @@ test('init shows option modules in the confirmation, not as an interview questio
 });
 
 test('init passes the chosen option modules to plan, scaffold and standard', () => {
-  assert.match(confirmation, /plan "<repo>" .*\[--with <module>\]\.\.\./);
-  assert.match(write, /scaffold \. --lang <lang> --new-repo "<repo>" --visibility <v> \[--with <module>\]\.\.\./);
-  assert.match(write, /standard "<repo>" <options of the plan> --apply/);
-  assert.match(write, /scaffold \. --lang <lang> --repo "<repo>" --visibility <v> \[--with <module>\]\.\.\./);
+  assert.match(confirmation, /plan '<repo>' .*\[--with <module>\]\.\.\./);
+  assert.match(write, /scaffold \. --lang <lang> --new-repo '<repo>' --visibility <v> \[--with <module>\]\.\.\./);
+  assert.match(write, /standard '<repo>' <options of the plan> --apply/);
+  assert.match(write, /scaffold \. --lang <lang> --repo '<repo>' --visibility <v> \[--with <module>\]\.\.\./);
   assert.match(write, /every `--with` of the plan/);
 });
 

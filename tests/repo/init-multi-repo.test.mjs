@@ -24,7 +24,7 @@ test('init no longer stops on multi-repo', () => {
 });
 
 test('init runs plan once per code repo', () => {
-  assert.match(text, /`plan "<repo>" <options of the plan> --gaps` once per code repo/);
+  assert.match(text, /`plan '<repo>' <options of the plan> --gaps` once per code repo/);
   assert.match(text, /append each list/);
   assert.match(text, /one `assess` audit per code repo/i);
   assert.match(text, /at most 5 lines per repo plus 3 lines on the connections/);
@@ -96,4 +96,51 @@ test('init pre-approves github-plan but no gh or git push', () => {
   assert.match(tools, /PowerShell\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/buildorder\.mjs" github-plan \*\)/);
   assert.doesNotMatch(tools, /\bgh\b|git push|github-checklist/);
   assert.match(fill + github, /github-checklist \./);
+});
+
+// --- review 1.3 fixes ---
+const multiBranch = step('## Multi-repo branch', '## 1. Interview');
+
+test('init records the docs repo as .=create, which the CLI accepts (I2)', () => {
+  assert.match(github, /`--done \.=create`/);
+  assert.doesNotMatch(github, /the docs repo has the path `\.`/);
+});
+
+test('init offers "settings only" only for a repo that already exists on GitHub (I5)', () => {
+  assert.match(github, /yes \/ no \/ settings only.{0,120}`exists: true`/);
+  assert.match(github, /otherwise yes \/ no/i);
+});
+
+test('init renders every argument in single quotes and asks for --name on an invalid name (M2)', () => {
+  assert.match(github, /every argument in single quotes/);
+  assert.match(github, /never double quotes/);
+  assert.match(github, /`invalid name`.{0,160}`--name <path>=<name>`/);
+});
+
+test('init runs the settings commands one by one and ticks each (M6)', () => {
+  assert.match(github, /alerts, then secret scanning, then the ruleset/);
+  assert.match(github, /continue with the next settings command/);
+  assert.match(github, /`settings:<name>`/);
+  assert.match(github, /`ticks`/);
+});
+
+test('init shows the docs command in the opt-in question, with its own consent (M8)', () => {
+  assert.match(github, /docs repo has its own consent/i);
+  assert.match(github, /gh repo create '<owner>\/<docs name>' --private --source '\.' --remote origin/);
+});
+
+test('init texts match 1.3: several repos, the scaffold call, the backlog task (M9)', () => {
+  assert.match(frontmatter(raw).description, /several repos/);
+  assert.doesNotMatch(frontmatter(raw).description, /or one existing repo/);
+  assert.match(multiBranch, /leave out `--repo`/);
+  assert.match(multiBranch, /a repo without code gets a value only through its own `<path>=<value>`/);
+  assert.match(github, /backlog task/);
+});
+
+test('init removes a skill with one fixed command, only from the two skill folders, after showing it (M11)', () => {
+  assert.match(text, /rm -r -- '<folder>'/);
+  assert.match(text, /Remove-Item -LiteralPath '<folder>' -Recurse/);
+  assert.match(text, /parent is exactly `~\/\.claude\/skills` or `<root>\/\.claude\/skills`/);
+  assert.match(text, /show the command before it runs/i);
+  assert.doesNotMatch(frontmatter(raw)['allowed-tools'], /\brm\b|Remove-Item/);
 });
