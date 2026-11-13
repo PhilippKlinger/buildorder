@@ -440,3 +440,14 @@ test('scaffold --repo typed in lower case finds an upper-case folder on Windows'
   assert.equal(web.visibility, 'public');
   assert.ok(web.standards.modules.includes('versioning'));
 });
+
+test('scaffold refuses two visibility defaults before writing anything', () => {
+  const { root } = multiRepoWorkspace();
+  const before = tree(root);
+  const r = cli('scaffold', root, '--visibility', 'private', '--visibility', 'public');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--visibility default given twice/);
+  assert.deepEqual(tree(root), before);
+  // For --with plain ids are a list: several stay allowed.
+  assert.equal(cli('scaffold', root, '--with', 'versioning', '--with', 'web-quality').status, 0);
+});

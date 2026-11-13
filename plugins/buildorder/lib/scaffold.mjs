@@ -100,7 +100,7 @@ function recorded(root, repo, options) {
  * that `defaults` accepts (all by default), `<path>=<value>` sets it for that one repo of `paths`. Returns
  * Map<path, value> (paths without a value are absent). With `many`, the value of a path is the list of its
  * values (default values first).
- * Throws on an unknown path, a path given twice (unless `many`) and a value outside `allowed` (when given).
+ * Throws on an unknown path, a path or a default given twice (unless `many`) and a value outside `allowed` (when given).
  */
 export function perRepo(values, paths, allowed = null, { many = false, option = 'value', defaults: takesDefault = () => true } = {}) {
   const known = new Map(paths.map((p) => [normalizePath(p), p]));
@@ -121,6 +121,7 @@ export function perRepo(values, paths, allowed = null, { many = false, option = 
     if (own.has(path) && !many) throw new Error(`'${given}' given twice`);
     own.set(path, [...(own.get(path) ?? []), value]);
   }
+  if (!many && defaults.length > 1) throw new Error(`${option} default given twice`);
   const result = new Map();
   for (const path of paths) {
     const base = takesDefault(path) ? defaults : [];
