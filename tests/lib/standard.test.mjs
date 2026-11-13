@@ -356,3 +356,24 @@ test('a tag keeps only letters, digits and hyphens', () => {
     { path: 'my_api.v2', isCode: true }, { path: 'web', isCode: true }] }) });
   assert.equal(gapIds(join(root, 'my_api.v2'))[0], 'STD-MY-API-V2-01');
 });
+
+// Review 1.3 I3: tags are compared as tags, so case and normalization cannot make two repos share one.
+test('folders that differ only in their parent get path tags, also with upper-case letters', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['A/App', 'B/App'] });
+  assert.equal(gapIds(join(root, 'A', 'App'))[0], 'STD-A-APP-01');
+  assert.equal(gapIds(join(root, 'B', 'App'))[0], 'STD-B-APP-01');
+});
+
+test('names that normalize to the same tag get a numeric suffix in path order', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['my-api', 'my_api'] });
+  assert.equal(gapIds(join(root, 'my-api'))[0], 'STD-MY-API-1-01');
+  assert.equal(gapIds(join(root, 'my_api'))[0], 'STD-MY-API-2-01');
+});
+
+test('a suffix or path tag never takes the tag of another repo', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['a/app', 'b/app', 'a-app', 'my-api', 'my_api', 'my-api-1'] });
+  const first = (path) => gapIds(join(root, ...path.split('/')))[0].replace(/-\d\d$/, '');
+  const tags = ['a/app', 'b/app', 'a-app', 'my-api', 'my_api', 'my-api-1'].map(first);
+  assert.equal(new Set(tags).size, tags.length, tags.join(' '));
+  assert.ok(tags.every((t) => /^STD-[A-Z0-9]+(-[A-Z0-9]+)*$/.test(t)), tags.join(' '));
+});
