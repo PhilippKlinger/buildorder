@@ -19,6 +19,11 @@
   "secrets": "- [ ] Secret scanning and push protection",
   "alerts": "- [ ] Dependabot alerts",
   "verify": "- [ ] Check: `gh api repos/{{slug}}/rulesets` lists the ruleset `{{ruleset}}`.",
+  "createDone": "- [x] Repo created on GitHub ({{date}})",
+  "createOpen": "- [ ] Create the repo on GitHub (it has no GitHub remote yet)",
+  "pushDone": "- [x] `main` pushed ({{date}})",
+  "pushOpen": "- [ ] Push `main` to the new repo",
+  "settingsDone": "- [x] GitHub settings applied ({{date}})",
   "noRepos": "No repo is listed in `.claude/workspace.json`.",
   "outro": [
     "Private repos: rulesets need GitHub Pro or higher, secret scanning and push protection need GitHub Secret",
