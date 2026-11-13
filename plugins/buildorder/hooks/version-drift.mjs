@@ -8,13 +8,16 @@ import { git } from '../lib/git.mjs';
 import { readState, stateFile, writeState } from './state.mjs';
 
 const RELEASE = /\b(?:release\w*|bump\w*|tag(?:s|ged|ging)?|versions?|ver\u00f6ffentlich\w*)\b/i;
+// Only SemVer-like values are shown: repo text is data and never reaches the prompt context otherwise.
+const SEMVER = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]{1,40})?$/;
+const validVersion = (v) => typeof v === 'string' && v.length <= 64 && SEMVER.test(v);
 const SEP = ' \u00b7 ';
 
 /** The `version` string of a JSON file, or null when missing, unreadable or not a string. */
 function jsonVersion(file) {
   try {
     const v = JSON.parse(readFileSync(file, 'utf8'))?.version;
-    return typeof v === 'string' && v !== '' ? v : null;
+    return validVersion(v) ? v : null;
   } catch {
     return null;
   }
@@ -31,7 +34,7 @@ function pyprojectVersion(file) {
         continue;
       }
       const m = inProject ? /^version\s*=\s*["']([^"']+)["']/.exec(line) : null;
-      if (m) return m[1];
+      if (m) return validVersion(m[1]) ? m[1] : null;
     }
   } catch { /* unreadable: skipped */ }
   return null;
@@ -41,7 +44,7 @@ function pyprojectVersion(file) {
 function driftOf(repo, dir) {
   const found = [];
   const tag = git(dir, ['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*']);
-  if (tag !== '') found.push({ label: `tag ${tag}`, value: tag.replace(/^v/, '') });
+  if (validVersion(tag)) found.push({ label: `tag ${tag}`, value: tag.replace(/^v/, '') });
   const files = [
     ['package.json', jsonVersion],
     ['package-lock.json', jsonVersion],
