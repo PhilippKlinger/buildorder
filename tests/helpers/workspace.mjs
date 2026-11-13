@@ -29,6 +29,8 @@ const ANGULAR_WEB = {
  * The multi-repo test layout of the 1.3 spec (section 6): code repos `shop/api` (Django) and `shop/web`
  * (Angular), each with one commit on `main`, and `notes`, a git repo with markdown only (no code).
  * With `sameName` the code repos are `a/app` and `b/app` instead (both Angular), for tag collisions.
+ * With `names` the code repos get these paths instead (the first Django, the others Angular), for example
+ * folder names with upper-case letters; `notes` stays unless `sameName` is set.
  * Options:
  * - `withOrigin`: repo paths that get an SSH `origin` on github.com for owner `o` and repo `<folder>`
  * - `dirty`: repo paths that get an untracked file `wip.txt`
@@ -37,11 +39,11 @@ const ANGULAR_WEB = {
  * Returns `{ root, code: [paths], docs: [paths] }` with forward-slash repo paths relative to `root`.
  * The root folder name holds spaces, like every temp folder of the helpers.
  */
-export function multiRepoWorkspace({ withOrigin = [], dirty = [], registered = false, visibility = {}, sameName = false } = {}) {
+export function multiRepoWorkspace({ withOrigin = [], dirty = [], registered = false, visibility = {}, sameName = false, names = null } = {}) {
   const root = tmp('multi');
-  const code = sameName ? ['a/app', 'b/app'] : ['shop/api', 'shop/web'];
+  const code = names ?? (sameName ? ['a/app', 'b/app'] : ['shop/api', 'shop/web']);
   const docs = sameName ? [] : ['notes'];
-  const files = sameName ? [ANGULAR_WEB, ANGULAR_WEB] : [DJANGO_API, ANGULAR_WEB];
+  const files = sameName ? code.map(() => ANGULAR_WEB) : code.map((_, i) => (i === 0 ? DJANGO_API : ANGULAR_WEB));
   code.forEach((path, i) => codeRepo(null, files[i], { dir: join(root, ...path.split('/')) }));
   for (const path of docs) {
     const dir = join(root, path);
