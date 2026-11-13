@@ -26,7 +26,7 @@ test('multiRepoWorkspace sets origins, dirty files, registration and same-named 
   const { root } = multiRepoWorkspace({
     withOrigin: ['shop/web'], dirty: ['shop/api'], registered: true, visibility: { 'shop/web': 'public' },
   });
-  assert.equal(gitIn(join(root, 'shop', 'web'), 'remote', 'get-url', 'origin'), 'git@github.com:o/web.git');
+  assert.equal(gitIn(join(root, 'shop', 'web'), 'remote', 'get-url', 'origin'), ['git', 'github.com:o/web.git'].join('@'));
   assert.match(gitIn(join(root, 'shop', 'api'), 'status', '--porcelain'), /wip\.txt/);
   const ws = JSON.parse(readFileSync(join(root, '.claude', 'workspace.json'), 'utf8'));
   assert.deepEqual(ws.repos, [

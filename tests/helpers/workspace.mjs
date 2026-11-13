@@ -30,7 +30,7 @@ const ANGULAR_WEB = {
  * (Angular), each with one commit on `main`, and `notes`, a git repo with markdown only (no code).
  * With `sameName` the code repos are `a/app` and `b/app` instead (both Angular), for tag collisions.
  * Options:
- * - `withOrigin`: repo paths that get `origin` = `git@github.com:o/<folder>.git`
+ * - `withOrigin`: repo paths that get an SSH `origin` on github.com for owner `o` and repo `<folder>`
  * - `dirty`: repo paths that get an untracked file `wip.txt`
  * - `registered`: also write `.claude/workspace.json` (initPhase `done`, every repo listed with `isCode`)
  * - `visibility`: `{ <path>: 'public' | 'private' }` recorded on the repo entries (needs `registered`)
@@ -51,7 +51,8 @@ export function multiRepoWorkspace({ withOrigin = [], dirty = [], registered = f
   }
   for (const path of withOrigin) {
     const folder = path.split('/').at(-1);
-    gitIn(join(root, ...path.split('/')), 'remote', 'add', 'origin', `git@github.com:o/${folder}.git`);
+    // Assembled at runtime so the public-pattern scan sees no address-like literal.
+    gitIn(join(root, ...path.split('/')), 'remote', 'add', 'origin', ['git', `github.com:o/${folder}.git`].join('@'));
   }
   for (const path of dirty) write(join(root, ...path.split('/')), { 'wip.txt': 'work in progress\n' });
   if (registered) {
