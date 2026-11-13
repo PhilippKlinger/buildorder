@@ -66,7 +66,13 @@ It does the following:
 3. Creates the workspace (a private git repo for the docs) with its doc-map and the GitHub settings checklist.
 4. New project: writes the standard pipeline and a tested starter into the repo in one commit.
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
-5. Pushes nothing.
+5. Pushes nothing unless you consent per repo (see the GitHub step below).
+
+**Several repos:** a folder with several git repos becomes one workspace. `--visibility` and `--with` can be repeated: a value without `=` is the default for every repo, `<path>=<value>` applies to one repo (for example `--visibility private --visibility shop/web=public`). With two or more code repos the gap ids carry a tag from the folder name (`STD-API-01`, `STD-WEB-01`; the whole path if two folders share a name); with one code repo they stay `STD-01`.
+
+**Skill overlap:** if `detect` finds personal or repo skills (`<repo>/.claude/skills`) that overlap with Buildorder's skills, init asks once how to handle each. It never changes them.
+
+**GitHub step:** after the workspace exists, init shows what it would create (`github-plan`, read-only) and asks once per repo: yes, no, or settings only. Only after a yes it creates the repo, pushes `main` and applies the settings; otherwise you get the checklist. The docs repo is created only if you ask, and always private.
 
 **Options:** the modules `versioning` and `web-quality` are options (class `option`). You choose them in the init confirmation; init passes the chosen options on to `plan`, `scaffold` and `standard`.
 
@@ -204,8 +210,10 @@ Known limits:
 
 ## Limits and safety
 
-- Buildorder never pushes and never creates repositories. `/buildorder:init` does not call the GitHub API:
-  GitHub settings are a checklist with ready commands that you run.
+- `/buildorder:init` creates GitHub repos, pushes `main` and applies settings only after your consent for each repo.
+  Anything your `settings.json` denies stays denied (`deny` always wins); init then falls back to the checklist with
+  ready commands that you run. It never pushes another branch.
+- Adding a repo to a finished workspace is not supported yet; it comes in a later release.
 - `/buildorder:deploy-gate`, `/buildorder:deps` and `/buildorder:ci-fix` make read-only `gh` calls, each after your
   permission. For a failed run, excerpts of the CI log enter the model's context.
 - No telemetry. Data leaves your machine only when `/buildorder:radar` fetches the fixed public Claude Code pages
