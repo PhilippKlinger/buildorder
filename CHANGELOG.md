@@ -5,6 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [1.2.0] - 2026-11-13
+
+### Added
+
+- Option modules, added with `--with <module>` on init.
+- `versioning` module with the hook `version-drift`: warns on release prompts when the latest tag and the version files disagree.
+- `template-pins.yml`: keeps the actions used in the templates current through Dependabot.
+- `web-quality` module with the skill `/buildorder:web-quality`: static check of a web frontend for performance, SEO and accessibility; reports only.
+
+### Changed
+
+- `/buildorder:review` and `/buildorder:secure` warn when started outside the repo folder.
+- `/buildorder:deploy-gate` handles the deploy target `none` and a mismatch between target and files.
+- `/buildorder:deps` and `/buildorder:ci-fix` continue when you decline a `gh` call.
+- `/buildorder:assess` runs one command per call.
+- The gap list names what it looked for.
+
+### Fixed
+
+- React starter: `minimatch` override 11.0.1.
+- Buildorder's own root Dependabot config keeps the Django image on the Python line its Django LTS supports; generated Django projects still get Python minor PRs.
+
 ## [1.1.0] - 2026-11-13
 
 ### Added
@@ -113,6 +135,7 @@ First pre-release.
   handoff reminder on stop.
 - Skills: `/buildorder:init`, `kickoff`, `handoff`, `assess`, `review` and `secure`.
 
+[1.2.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v1.2.0
 [1.1.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v1.1.0
 [1.0.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v1.0.0
 [0.2.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.2.0

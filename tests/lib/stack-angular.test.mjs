@@ -146,7 +146,7 @@ test('an angular repo without CI: the plan lists the stack items as missing and 
   for (const id of STACK_ITEMS) {
     const item = out.items.find((i) => i.id === id);
     assert.equal(item.state, 'missing', id);
-    assert.equal(item.reason, undefined, `${id}: the module writes it`);
+    assert.match(item.reason, /^no workflow matches '/, `${id}: names what was looked for`);
   }
   assert.ok(out.files.some((f) => f.path === 'Dockerfile' && f.state === 'create'));
   assert.deepEqual(snapshot(dir), before);

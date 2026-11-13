@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadModel, standard } from '../../plugins/buildorder/lib/standard.mjs';
+import { loadModel, optionModules, standard } from '../../plugins/buildorder/lib/standard.mjs';
 import { cleanup, codeRepo, gitIn, gitInit, tempDir, tmp, write } from '../helpers/cli.mjs';
 import { FAKE_STACKS, jobIds } from '../helpers/standard.mjs';
 
@@ -266,4 +266,58 @@ test('--apply refreshes isCode and stacks of its own repo only, also deep in the
   const res = run(lone, { apply: true, deploy: 'none' });
   assert.equal(res.workspace.recorded, false);
   assert.match(res.workspace.reason, /no entry for 'app'/);
+});
+
+test("--with versioning adds the module to the plan's modules", () => {
+  const dir = repo('standard with');
+  const out = run(dir, { with: ['versioning'] });
+  assert.deepEqual(out.modules, ['fake', 'docker-cicd', 'versioning']);
+  assert.deepEqual(run(dir).modules, ['fake', 'docker-cicd']);
+  assert.deepEqual(run(dir, { with: ['versioning', 'versioning'] }).modules, ['fake', 'docker-cicd', 'versioning']);
+});
+
+test('--with refuses an unknown id, a non-option item and a stack it does not apply to', () => {
+  const dir = repo('standard with refused');
+  assert.throws(() => run(dir, { with: ['nope'] }), /^Error: unknown option 'nope'$/);
+  assert.throws(() => run(dir, { with: ['codeql'] }), /^Error: 'codeql' is not an option \(class mandatory\)$/);
+  assert.throws(() => run(dir, { with: ['deploy'] }), /^Error: 'deploy' is not an option \(class standard\)$/);
+  const model = {
+    items: [
+      { id: 'a', class: 'option' },
+      { id: 'web', class: 'option', stacks: ['react', 'angular'] },
+      { id: 'b', class: 'option' },
+    ],
+  };
+  assert.deepEqual(optionModules(model, ['b', 'a', 'b'], 'go'), ['a', 'b'], 'model order, no duplicates');
+  assert.deepEqual(optionModules(model, ['web'], 'react'), ['web']);
+  assert.deepEqual(optionModules(model, ['web'], null), ['web'], 'no stack to check against');
+  assert.deepEqual(optionModules(model), []);
+  assert.throws(() => optionModules(model, ['web'], 'go'), /^Error: 'web' applies to react, angular only$/);
+});
+
+test('standard --apply records the option modules in workspace.json', () => {
+  const ws = tempDir('standard with ws');
+  write(ws, { '.claude/workspace.json': JSON.stringify({ schemaVersion: 1, name: 'demo', repos: [{ path: 'app' }] }) });
+  const dir = repo(null, { 'README.md': '# app\n' }, { dir: join(ws, 'app') });
+  const out = run(dir, { apply: true, with: ['versioning'] });
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.modules, ['fake', 'docker-cicd', 'versioning']);
+  const saved = JSON.parse(read(ws, '.claude/workspace.json'));
+  assert.deepEqual(saved.repos[0].standards.modules, ['fake', 'docker-cicd', 'versioning']);
+});
+
+test('a missing stack item names the workflow pattern it looked for', () => {
+  const out = run(repo('standard gap stack'));
+  const lint = out.items.find((i) => i.id === 'lint');
+  assert.equal(lint.state, 'missing');
+  assert.equal(lint.reason, "no workflow matches 'fake-lint'");
+  const secret = out.items.find((i) => i.id === 'secret-scan');
+  assert.equal(secret.reason, "no workflow matches 'gitleaks'");
+});
+
+test('a missing file item names the files it looked for', () => {
+  const out = run(repo('standard gap files'));
+  const dependabot = out.items.find((i) => i.id === 'dependabot');
+  assert.equal(dependabot.state, 'missing');
+  assert.equal(dependabot.reason, 'none of .github/dependabot.yml, .github/dependabot.yaml exists');
 });

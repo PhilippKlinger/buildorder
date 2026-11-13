@@ -73,7 +73,7 @@ only: phrase them as hints ("traces of ...", "looks like ..."), never as facts. 
 New project: the repo folder is the workspace folder name without a `-workspace` suffix. Docs language: suggest
 the language the user writes in (`en` or `de`; others get `en`).
 
-Run the read-only plan: `plan "<repo>" [--stack <id>] --deploy <target> --visibility <v> [--without <id>=<reason>]...`
+Run the read-only plan: `plan "<repo>" [--stack <id>] --deploy <target> --visibility <v> [--without <id>=<reason>]... [--with <module>]...`
 (a repo folder that does not exist yet is planned as empty).
 Pass `--stack` only with a stack that has a module (`django`, `python`, `go`, `react`, `angular`), never another entry of `stacks` such as
 `github-actions`; otherwise leave it out (for an existing repo, `plan` picks the detected stack itself).
@@ -86,6 +86,10 @@ Show compactly:
   `missing` item becomes a backlog task.
 - **Standards:** `items` with class and state, `modules`, deploy target, visibility. Mandatory items cannot be
   deselected.
+- **Options:** the option modules (`class: option` in the model), each with a one-line summary, off unless chosen and
+  never asked in the interview. Recommend `versioning` when the release style is tags with SemVer, and `web-quality`
+  when the stack is `react` or `angular` (it adds the rule `.claude/rules/web-quality.md`); name the evidence. Every module the user accepts becomes one `--with
+  <module>` on `plan`, `scaffold` and `standard`; only ids the model lists as options work.
 - **Deviations** with their reasons (`deviations`), and the first backlog tasks.
 - **GitHub:** at the very end, `docs/github-settings.md` and `docs/github-ruleset.json`: a checklist with ready
   commands; Buildorder calls nothing.
@@ -98,14 +102,15 @@ Ask: set it up like this, or change something. A change goes back into the plan.
 ## 3. Write
 
 **New project:**
-1. `scaffold . --lang <lang> --new-repo "<repo>" --visibility <v>`: it creates the repo with `git init` on `main`.
-2. `standard "<repo>" <options of the plan> --apply`, with a stack module also `--starter`: one commit in the repo, never
+1. `scaffold . --lang <lang> --new-repo "<repo>" --visibility <v> [--with <module>]...`: it creates the repo with `git init` on `main`.
+2. `standard "<repo>" <options of the plan> --apply` (including every `--with` of the plan), with a stack module also `--starter`: one commit in the repo, never
    a push. If git has no identity, give the user the two `git config` commands to run, then repeat. If it reports
    `ok: false`, git refused the commit (for example signing or a hook): name the `reason`, let the user fix it,
    then repeat; the rerun commits the files already written.
 
 **Existing project:**
-1. `scaffold . --lang <lang> --repo "<repo>" --visibility <v>`
+1. `scaffold . --lang <lang> --repo "<repo>" --visibility <v> [--with <module>]...`: with `--with`, the repo entry records the modules
+   in `standards.modules`, because `standard --apply` never runs here
 2. `plan "<repo>" <options of the plan> --gaps`: keep the output for step 4. Never run `standard` here: the repo
    stays unchanged.
 

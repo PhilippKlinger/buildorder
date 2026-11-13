@@ -272,3 +272,77 @@ test('a root that is a repo or lies inside one is left alone; an existing .gitig
   assert.equal(read(inner, '.gitignore'), '.claude/settings.local.json\n/app/\n');
   assert.deepEqual(kept.ignored, ['/app/']);
 });
+
+test('scaffold --with records the option modules on the repo entry', () => {
+  const dir = tmp('scaffold with');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  codeRepo(null, { 'README.md': '# notes\n' }, { dir: join(dir, 'notes') });
+  scaffold(dir, '--repo', 'app', '--with', 'versioning', '--with', 'versioning');
+  const app = wsOf(dir).repos[0];
+  assert.deepEqual(app.standards.modules.at(-1), 'versioning');
+  assert.equal(app.standards.modules.filter((m) => m === 'versioning').length, 1);
+  const plain = tmp('scaffold without');
+  codeRepo(null, undefined, { dir: join(plain, 'app') });
+  scaffold(plain);
+  assert.equal('standards' in wsOf(plain).repos[0], false);
+});
+
+test('scaffold --with versioning keeps docker-cicd for a repo with a Dockerfile', () => {
+  const dir = tmp('scaffold with image');
+  codeRepo(null, {
+    'package.json': JSON.stringify({ dependencies: { '@angular/core': '^20' } }),
+    'angular.json': '{}',
+    Dockerfile: 'FROM node:22\n',
+  }, { dir: join(dir, 'app') });
+  scaffold(dir, '--repo', 'app', '--with', 'versioning');
+  const { standards } = wsOf(dir).repos[0];
+  assert.deepEqual(standards.modules, ['angular', 'docker-cicd', 'versioning']);
+  assert.ok(Array.isArray(standards.deviations));
+  assert.equal(existsSync(join(dir, 'app', '.github')), false, 'no repo file written');
+});
+
+test('scaffold refuses an unknown option before writing anything', () => {
+  const dir = tmp('scaffold with refused');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  for (const id of ['nope', 'codeql']) {
+    const r = cli('scaffold', dir, '--with', id);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /^buildorder: (unknown option 'nope'|'codeql' is not an option \(class mandatory\))\n$/);
+  }
+  assert.equal(existsSync(join(dir, '.claude')), false);
+  assert.equal(existsSync(join(dir, 'CLAUDE.md')), false);
+});
+
+const RULE = '.claude/rules/web-quality.md';
+
+test('scaffold --with web-quality writes the web-quality rule scoped to the repo\'s sources', () => {
+  const dir = tmp('scaffold wq');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  const out = scaffold(dir, '--repo', 'app', '--with', 'web-quality');
+  assert.ok(out.created.includes(RULE));
+  const rule = read(dir, RULE);
+  assert.match(rule, /^---\npaths:\n  - "app\/src\/\*\*\/\*\.\{ts,tsx,html,css,scss\}"\n  - "app\/index\.html"\n---\n/);
+  for (const h of ['Semantics and SEO', 'Accessibility (WCAG AA)', 'Performance (LCP, CLS, INP)', 'Responsive']) {
+    assert.ok(rule.includes(`## ${h}`), h);
+  }
+  assert.doesNotMatch(rule, /\{\{/);
+});
+
+test('scaffold without web-quality writes no rule', () => {
+  const dir = tmp('scaffold no wq');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  const out = scaffold(dir, '--repo', 'app');
+  assert.equal(out.created.includes(RULE), false);
+  assert.equal(existsSync(join(dir, '.claude', 'rules')), false);
+});
+
+test('a rerun keeps an edited web-quality rule', () => {
+  const dir = tmp('scaffold wq rerun');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  scaffold(dir, '--repo', 'app', '--with', 'web-quality');
+  write(dir, { [RULE]: 'my own rule\n' });
+  const again = scaffold(dir, '--repo', 'app', '--with', 'web-quality');
+  assert.ok(again.skipped.includes(RULE));
+  assert.equal(again.created.includes(RULE), false);
+  assert.equal(read(dir, RULE), 'my own rule\n');
+});

@@ -26,6 +26,8 @@ git commands, and never pass `--fix` or `--comment` to `/code-review`.
    If neither gives a repo, list the code repo paths, ask the user to call the skill again with one, and stop.
 4. **Mode:** *in-repo* when your working directory is the repo folder or inside it, otherwise *root*.
    Do not `cd`: every command starts in the working directory again. Use `git -C "<repo folder>"` instead.
+5. In root mode, the first line of your reply is: `Started outside <repo>: the built-in /code-review cannot run from here and stays pending. For the full run, start a session in <repo folder> and call /buildorder:review again.`
+   Decide this now, before any finding, then review as below.
 
 ## 2. Correctness
 

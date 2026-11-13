@@ -7,7 +7,7 @@ import { BUILDORDER_VERSION, PLUGIN_ROOT, detect, safeName, validName } from './
 import { readJson, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
 import { normalizePath, relativeTo } from './paths.mjs';
-import { VISIBILITIES } from './standard.mjs';
+import { VISIBILITIES, loadModel, optionModules, standard } from './standard.mjs';
 import { loadWorkspace } from './workspace.mjs';
 
 /** The doc-map: `docs` key in workspace.json -> file in the workspace root. */
@@ -24,6 +24,8 @@ export const LANGUAGES = ['en', 'de'];
 // One template folder per language; the workspace.json is built here, not from a template.
 const TEMPLATES = join(PLUGIN_ROOT, 'templates', 'workspace');
 export const WORKSPACE_JSON = '.claude/workspace.json';
+// The rule of the web-quality option module: one language-free template, scoped to the chosen repo.
+const WEB_QUALITY_RULE = '.claude/rules/web-quality.md';
 /** The workspace files rendered from a template (file name = template name). */
 export const TEMPLATE_FILES = ['CLAUDE.md', ...Object.values(DOC_MAP)];
 
@@ -69,9 +71,30 @@ function refusal(d) {
   return null;
 }
 
+/**
+ * The standards to record for a repo with option modules: the modules of its read-only plan (stack module,
+ * docker-cicd when an image is planned), then the options, without duplicates; the plan's deviations.
+ * No repo file is written. A repo that cannot be planned (no code, no git) records the options only.
+ */
+function recorded(root, repo, options) {
+  let plan = { modules: [], deviations: [] };
+  if (repo.isCode) {
+    try {
+      plan = standard(resolve(root, repo.path));
+    } catch { /* not plannable: options only */ }
+  }
+  return { modules: [...new Set([...plan.modules, ...options])], deviations: plan.deviations };
+}
+
 /** The repos to record: all that detect found, or those named in `--repo` (each must be one of them). */
-function pickRepos(root, found, wanted, visibility) {
-  const entry = (r) => ({ path: r.path, isCode: r.isCode, stacks: r.stacks, ...(visibility ? { visibility } : {}) });
+function pickRepos(root, found, wanted, visibility, modules = []) {
+  const entry = (r) => ({
+    path: r.path,
+    isCode: r.isCode,
+    stacks: r.stacks,
+    ...(visibility ? { visibility } : {}),
+    ...(modules.length ? { standards: recorded(root, r, modules) } : {}),
+  });
   if (!wanted?.length) return found.map(entry);
   const byKey = new Map(found.map((r) => [normalizePath(r.path), r]));
   const picked = new Map();
@@ -145,13 +168,15 @@ function ignoreRepos(root, paths, put, skipped) {
  * Writes the workspace files into `dir` (an existing folder). Options: `lang` (en|de), `name`, `repo`
  * (repo paths to record; default: every repo detect finds), `visibility` (public|private, recorded on each
  * repo entry; /buildorder:secure reads it), `newRepo` (a folder name: create the new project's code repo
- * there with `git init` on main and record it). Without `lang` and `name`, a rerun keeps
+ * there with `git init` on main and record it), `with` (option module ids: each picked repo gets
+ * the plan modules of the repo plus these as `standards`; validated before anything is written). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * The root becomes a git repo without a commit (`rootRepo`: created | existing), and its .gitignore lists
  * every repo folder plus Claude Code's local settings (`ignored`: the lines added).
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
-export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {
+export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: withIds } = {}) {
+  const modules = optionModules(loadModel(), withIds, null);
   if (lang !== undefined && !LANGUAGES.includes(lang)) throw new Error(`--lang must be one of ${LANGUAGES.join(', ')}`);
   if (newRepo !== undefined && !validName(newRepo)) {
     throw new Error(`invalid --new-repo '${newRepo}': one folder name of letters, digits, space and ._-`);
@@ -175,7 +200,7 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {
   const keptName = typeof existing?.name === 'string' && validName(existing.name) ? existing.name : null;
   const wsName = name ?? keptName ?? safeName(basename(root));
   const wanted = newRepo === undefined ? repo : [...(repo ?? []), newRepo];
-  const repos = pickRepos(root, d.repos, wanted, visibility);
+  const repos = pickRepos(root, d.repos, wanted, visibility, modules);
   const rootRepo = initRoot(root);
 
   const created = [];
@@ -212,6 +237,10 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo } = {}) {
   const resumed = skipped.includes(WORKSPACE_JSON);
 
   for (const { file, text } of rendered) put(file, text);
+  if (modules.includes('web-quality')) {
+    const target = repos.find((r) => r.isCode) ?? repos[0];
+    if (target) put(WEB_QUALITY_RULE, fill(readFileSync(join(TEMPLATES, 'rules', 'web-quality.md'), 'utf8'), { repo: target.path }));
+  }
   // A resume keeps its workspace.json and only adds the records of the files it created now.
   if (resumed && Object.keys(records).length) {
     const file = join(root, ...WORKSPACE_JSON.split('/'));

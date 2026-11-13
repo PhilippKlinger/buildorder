@@ -72,3 +72,9 @@ test('deps uses the stacks field, runs one command per call and reads no secret 
   assert.match(text, /no `cd \.\.\. &&` chains/i);
   assert.match(text, /never open `\.env`[^.]*secret files?/i);
 });
+
+test('deps reports a declined gh command as not checked and does not work around it', () => {
+  assert.match(text, /declines a `gh` command.{0,200}no second attempt in another form/i);
+  assert.match(text, /no `gh api`, no other shell, no `cd` chain/i);
+  assert.match(text, /"not checked \(declined\)".{0,200}names the declined command/i);
+});

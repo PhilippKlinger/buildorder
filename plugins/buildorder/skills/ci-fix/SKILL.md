@@ -29,9 +29,11 @@ agrees.
    remote, reply with one friendly sentence that this skill needs the repo on GitHub and stop. The `gh` commands
    are not pre-approved and ask for permission; that is intended. Run one command per call, with no `cd ... &&` chains
    (they are denied or ask for permission). Never open `.env` or other secret files.
-5. If `gh` is missing or not signed in, reply with one friendly sentence that the GitHub CLI is needed and the next
+5. If the user declines a `gh` command, make no second attempt in another form: no `gh api`, no other shell, no `cd` chain,
+   no rewording of the same call. Mark that point "not checked (declined)", end the report with what you have; the report names the declined command.
+6. If `gh` is missing or not signed in, reply with one friendly sentence that the GitHub CLI is needed and the next
    step is `gh auth login` (install it first when missing). No raw error text. Do nothing else.
-6. Without a run id: `gh run list --status failure --limit 5` and take the newest failed run. No failed run: say so
+7. Without a run id: `gh run list --status failure --limit 5` and take the newest failed run. No failed run: say so
    in one sentence and stop.
 
 ## 2. Read the failure

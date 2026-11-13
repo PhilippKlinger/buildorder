@@ -116,6 +116,15 @@ test('react starter: every dependency is pinned exactly and the lockfile exists'
   for (const [name, version] of Object.entries(deps)) assert.equal(lock.packages[`node_modules/${name}`]?.version, version, name);
 });
 
+test('the react starter overrides minimatch with the patched 11.0.1', () => {
+  const pkg = JSON.parse(starterFile('package.json'));
+  assert.deepEqual(pkg.overrides, { minimatch: '11.0.1' });
+  const lock = JSON.parse(starterFile('package-lock.json'));
+  assert.equal(lock.packages['node_modules/minimatch'].version, '11.0.1');
+  // The transitive package of the override stays within the 14-day cooldown (1.0.3, 2026-10-28; 1.1.0 was too new).
+  assert.equal(lock.packages['node_modules/@isaacs/nonrecursive-glob-match'].version, '1.0.3');
+});
+
 test('react starter: .gitattributes forces LF', () => {
   assert.match(starterFile('.gitattributes'), /^\* text=auto eol=lf$/m);
 });
@@ -149,7 +158,7 @@ test('a React repo without CI: the plan lists the stack items as missing and lea
   for (const id of STACK_ITEMS) {
     const item = out.items.find((i) => i.id === id);
     assert.equal(item.state, 'missing', id);
-    assert.equal(item.reason, undefined, `${id}: the module writes it`);
+    assert.match(item.reason, /^no workflow matches '/, `${id}: names what was looked for`);
   }
   assert.ok(out.files.some((f) => f.path === 'Dockerfile' && f.state === 'create'));
   assert.deepEqual(snapshot(dir), before);

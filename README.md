@@ -68,6 +68,8 @@ It does the following:
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
 5. Pushes nothing.
 
+**Options:** the modules `versioning` and `web-quality` are options (class `option`). You choose them in the init confirmation; init passes the chosen options on to `plan`, `scaffold` and `standard`.
+
 If you run it inside the existing repo itself, init offers to move the repo into a subfolder first, so the
 folder can become the workspace; it moves nothing without your OK. Afterwards, open a new session so the hooks
 load, and start with `/buildorder:kickoff`. After updating the plugin, run `/buildorder:sync` to bring the
@@ -94,7 +96,8 @@ session from these docs.
 | `/buildorder:assess` | Static assessment of one repo, findings ranked P0 to P3 |
 | `/buildorder:review` | Code review with the project's own criteria (reports only) |
 | `/buildorder:secure` | Security and data protection audit (reports only) |
-| `/buildorder:scout` | Sharpens a plan before building: names blind spots, asks one question at a time, writes a brief or spec with acceptance criteria |
+| `/buildorder:scout` | Sharpens a plan before building: names blind spots, asks one question at a time, writes a brief or spec with acceptance criteria; with Superpowers installed, Superpowers generates the brief and `scout` checks it |
+| `/buildorder:web-quality` | Static check of a web frontend for performance, SEO and accessibility; needs the `web-quality` module; reports only |
 | `/buildorder:deploy-gate` | Go/no-go check before a deploy (clean pushed state, CI of HEAD, production compose file, variables); needs the `docker-cicd` module; reports only, never deploys |
 | `/buildorder:deps` | Triage of open Dependabot pull requests: release notes, CI state, merge order; reports only, merges nothing |
 | `/buildorder:ci-fix` | Diagnoses failed GitHub Actions runs: names job, step and log line, proposes a fix branch; applies nothing |
@@ -108,6 +111,7 @@ session from these docs.
 - Prompt hints: adds keyword hints and suggests `/effort high` for debugging, security or release work.
 - Compaction guard: after a compaction, asks to re-sync from the handoff before continuing.
 - Handoff reminder: when commits are newer than the handoff file.
+- Version drift: on release prompts, warns when the latest tag and the version files disagree (`versioning` module).
 
 **Stacks:** five modules, each with CI jobs and a tested starter.
 
@@ -150,6 +154,7 @@ demand; `ci-ok` requires every job to succeed.
 - `test`: the full test suite and the hook timing test on Ubuntu, Windows and macOS with Node 22 and 24.
 - `validate`: `claude plugin validate --strict` for the marketplace and the plugin.
 - `pre-commit`: the repo's pre-commit hooks.
+- `template-pins.yml` (separate workflow): lists the actions used in the templates and lets Dependabot keep them current; `node scripts/template-pins.mjs --write` copies them into the templates. A Dependabot PR that bumps an action in `template-pins.yml` stays red until `node scripts/template-pins.mjs --write` is committed on its branch.
 - `zizmor`: zizmor over this repo's workflows and over the workflows `standard` generates, then actionlint over
   the generated ones.
 - `django-fixture`, `python-fixture`, `go-fixture`, `react-fixture`, `angular-fixture`: each writes that stack's
@@ -204,7 +209,7 @@ Known limits:
 - `/buildorder:deploy-gate`, `/buildorder:deps` and `/buildorder:ci-fix` make read-only `gh` calls, each after your
   permission. For a failed run, excerpts of the CI log enter the model's context.
 - No telemetry. Data leaves your machine only when `/buildorder:radar` fetches the fixed public Claude Code pages
-  (WebFetch) and through `gh` commands that you run yourself.
+  (WebFetch) and through the `gh` commands of `/buildorder:deploy-gate`, `/buildorder:deps` and `/buildorder:ci-fix`, each after your permission.
 - Hooks are guardrails, not a guarantee; see [Security model](#security-model) for what they do and their known
   limits.
 - Private repos skip CodeQL and Dependency Review (paid GitHub products: GitHub Code Security, which GitHub offers only

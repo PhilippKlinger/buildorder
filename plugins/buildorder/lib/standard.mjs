@@ -55,6 +55,25 @@ export function deselections(model, without = []) {
   return out;
 }
 
+/**
+ * The option modules chosen with `--with`, in model order without duplicates. Throws on an unknown id, on an
+ * item that is no option, and (with a `stackId`) on an option that applies to other stacks only.
+ */
+export function optionModules(model, withIds = [], stackId = null) {
+  const chosen = new Set();
+  for (const raw of withIds ?? []) {
+    const id = String(raw).trim();
+    const item = model.items.find((i) => i.id === id);
+    if (!item) throw new Error(`unknown option '${id}'`);
+    if (item.class !== 'option') throw new Error(`'${id}' is not an option (class ${item.class})`);
+    if (stackId !== null && Array.isArray(item.stacks) && !item.stacks.includes(stackId)) {
+      throw new Error(`'${id}' applies to ${item.stacks.join(', ')} only`);
+    }
+    chosen.add(id);
+  }
+  return model.items.filter((i) => chosen.has(i.id)).map((i) => i.id);
+}
+
 /** A text file with LF line endings, or null when it cannot be read. */
 function readText(file) {
   try {
@@ -208,7 +227,7 @@ function defaultDeploy(root) {
  * reason. `deviations` are the skips a person decided (deselection, private repo); a deploy that
  * falls away with the image or by its target is a consequence, not a deviation.
  */
-function selection(root, model, { stack, deploy, visibility = 'public', without, starter }, stacksDir) {
+function selection(root, model, { stack, deploy, visibility = 'public', without, starter, with: withIds }, stacksDir) {
   if (deploy !== undefined && !DEPLOY_TARGETS.includes(deploy)) {
     throw new Error(`--deploy must be one of ${DEPLOY_TARGETS.join(', ')}`);
   }
@@ -218,6 +237,7 @@ function selection(root, model, { stack, deploy, visibility = 'public', without,
   }
   const deselected = deselections(model, without);
   const stackId = stack ?? defaultStack(root);
+  const options = optionModules(model, withIds, stackId);
   const module = stackId ? loadStack(stackId, stacksDir) : null;
   const target = deploy ?? defaultDeploy(root);
   if (starter && !module?.starter.length) {
@@ -250,6 +270,7 @@ function selection(root, model, { stack, deploy, visibility = 'public', without,
   }
   return {
     stackId,
+    options,
     stack: module,
     starter: Boolean(starter),
     deploy: target,
@@ -299,13 +320,19 @@ function allPinned(text) {
   return text.trim() !== '' && refs.every((u) => /@[0-9a-f]{40}$/.test(u));
 }
 
-function passes(root, check, workflows) {
-  if (!check) return false;
-  if (check.files && !check.files.some((f) => existsSync(join(root, ...f.split('/'))))) return false;
-  if (check.workflow && !check.workflow.every((p) => new RegExp(p).test(workflows))) return false;
-  if (check.pins && !allPinned(workflows)) return false;
-  return true;
+/** Why a check fails (what it looked for), or null when it passes. A missing check has no reason. */
+function failure(root, check, workflows) {
+  if (!check) return null;
+  if (check.files && !check.files.some((f) => existsSync(join(root, ...f.split('/'))))) {
+    return `none of ${check.files.join(', ')} exists`;
+  }
+  const pattern = check.workflow?.find((p) => !new RegExp(p).test(workflows));
+  if (pattern) return `no workflow matches '${pattern}'`;
+  if (check.pins && !allPinned(workflows)) return 'a workflow action is not pinned to a full commit SHA';
+  return null;
 }
+
+const passes = (root, check, workflows) => Boolean(check) && failure(root, check, workflows) === null;
 
 /** How an item is checked: the model's check, the stack module's pattern, or the CD workflow file. */
 function checkFor(item, sel) {
@@ -336,7 +363,7 @@ function itemsOf(root, model, sel) {
     const base = { id: item.id, class: item.class, provider: item.provider };
     if (sel.skips.has(item.id)) return { ...base, state: 'skipped', reason: sel.skips.get(item.id) };
     if (passes(root, checkFor(item, sel), workflows)) return { ...base, state: 'present' };
-    const reason = missingReason(item, sel);
+    const reason = missingReason(item, sel) ?? failure(root, checkFor(item, sel), workflows);
     return reason ? { ...base, state: 'missing', reason } : { ...base, state: 'missing' };
   });
 }
@@ -387,7 +414,7 @@ function report(root, model, sel) {
     stack: { id: sel.stackId, module: Boolean(sel.stack) },
     deploy: sel.deploy,
     visibility: sel.visibility,
-    modules: [...(sel.stack ? [sel.stack.id] : []), ...(image ? ['docker-cicd'] : [])],
+    modules: [...(sel.stack ? [sel.stack.id] : []), ...(image ? ['docker-cicd'] : []), ...sel.options],
     items: itemsOf(root, model, sel),
     files: filesOf(sel).map(({ path }) => ({ path, state: existsSync(join(root, ...path.split('/'))) ? 'exists' : 'create' })),
     deviations: sel.deviations,
@@ -462,7 +489,7 @@ function record(root, standards) {
 /**
  * The standard for the code repo `dir`. Options: `stack` (default: detected), `deploy`
  * (container | webspace | paas | none; default: detected, else none), `visibility` (public | private;
- * default public), `without` (['<id>=<reason>']), `starter` (also write the stack module's starter
+ * default public), `without` (['<id>=<reason>']), `with` (option module ids, recorded in `modules`), `starter` (also write the stack module's starter
  * project, for an empty repo; an error without a module that has one), `apply`. `stacksDir` replaces
  * the stack modules folder.
  *

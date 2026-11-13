@@ -268,3 +268,22 @@ test('plan --gaps prints the same gap list as standard --gaps; plan refuses --st
   assert.match(starter.stderr, /^buildorder: .*--starter/);
   assert.deepEqual(snapshot(dir), before);
 });
+
+test('plan accepts --with and stays read-only', () => {
+  const dir = localGit(codeRepo('standard plan with', { 'README.md': '# x\n' }));
+  const before = snapshot(dir);
+  const r = cli('plan', dir, '--deploy', 'none', '--with', 'versioning');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(r.json.modules.includes('versioning'));
+  assert.deepEqual(snapshot(dir), before);
+  const bad = cli('plan', dir, '--with', 'codeql');
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /^buildorder: 'codeql' is not an option \(class mandatory\)\n$/);
+});
+
+test('plan refuses --with web-quality for a go repo', () => {
+  const dir = localGit(codeRepo('standard plan wq go', { 'go.mod': 'module api\n' }));
+  const r = cli('plan', dir, '--with', 'web-quality');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^buildorder: 'web-quality' applies to react, angular only\n$/);
+});
