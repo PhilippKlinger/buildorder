@@ -2,7 +2,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, gitIn, tmp } from '../helpers/cli.mjs';
 import { multiRepoWorkspace } from '../helpers/workspace.mjs';
@@ -421,4 +421,43 @@ test('github-checklist without --owner is unchanged', () => {
   assert.match(md, /No GitHub remote yet: after the first push, replace `OWNER\/api`/);
   assert.equal(createHash('sha256').update(readFileSync(join(root, 'docs', 'github-settings.md'))).digest('hex'),
     '1e6e83f69bedad4c40bfac98801eb28534568af07d06825d461c461b4efe50d1');
+});
+
+// --- 1.3.1 fix wave: names settled before the checklist, --done keeps them, non-GitHub origins ---
+
+test('github-checklist with settled names targets the right repo for a/app and b/app', () => {
+  const { root } = multiRepoWorkspace({ registered: true, sameName: true, visibility: { 'a/app': 'private', 'b/app': 'private' } });
+  const r = cli('github-checklist', root, '--owner', 'acme', '--name', 'a/app=app-a', '--name', 'b/app=app-b');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json.repos.map((x) => [x.path, x.slug]), [['a/app', 'acme/app-a'], ['b/app', 'acme/app-b']]);
+  const md = read(root, 'docs/github-settings.md');
+  assert.ok(sectionOf(md, 'a/app').includes('repos/acme/app-a/rulesets'));
+  assert.ok(sectionOf(md, 'b/app').includes('repos/acme/app-b/rulesets'));
+  // The final --done call with the same flags keeps both names, also for a repo that was declined.
+  const done = cli('github-checklist', root, '--owner', 'acme', '--name', 'a/app=app-a', '--name', 'b/app=app-b', '--done', '.=create', '--done', 'a/app=create');
+  assert.equal(done.status, 0, done.stderr);
+  const after = read(root, 'docs/github-settings.md');
+  assert.ok(sectionOf(after, 'b/app').includes('repos/acme/app-b/rulesets'));
+  assert.doesNotMatch(after, /OWNER|acme\/app`/);
+});
+
+test('github-checklist refuses --name and --done for a repo with a non-GitHub origin before any write', () => {
+  for (const extra of [['--name', 'shop/web=other'], ['--done', 'shop/web=create']]) {
+    const { root } = multiRepoWorkspace({ registered: true, visibility: { 'shop/api': 'private', 'shop/web': 'public' } });
+    gitIn(join(root, 'shop', 'web'), 'remote', 'add', 'origin', GITLAB_REMOTE);
+    const r = cli('github-checklist', root, '--owner', 'acme', ...extra);
+    assert.equal(r.status, 1, extra.join(' '));
+    assert.match(r.stderr, /shop\/web.*not on GitHub/);
+    assert.equal(existsSync(join(root, 'docs', 'github-settings.md')), false);
+  }
+});
+
+test('github-checklist writes no loose ruleset for a non-GitHub repo without ci-ok', () => {
+  const { root } = multiRepoWorkspace({ registered: true, sameName: true, visibility: { 'a/app': 'private', 'b/app': 'public' } });
+  mkdirSync(join(root, 'a', 'app', '.github', 'workflows'), { recursive: true });
+  writeFileSync(join(root, 'a', 'app', '.github', 'workflows', 'ci.yml'), CI_OK['.github/workflows/ci.yml']);
+  gitIn(join(root, 'b', 'app'), 'remote', 'add', 'origin', GITLAB_REMOTE);
+  // a/app has ci-ok; b/app has none but lives elsewhere, so no command would use the loose ruleset.
+  assert.equal(cli('github-checklist', root).status, 0);
+  assert.equal(existsSync(join(root, 'docs', 'github-ruleset-without-checks.json')), false);
 });

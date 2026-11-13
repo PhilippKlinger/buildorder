@@ -288,8 +288,16 @@ export function githubChecklist(dir, { repo: given, done = [], owner, name = [] 
   if (given !== undefined && found.filter((f) => !originMatch(f.abs)).length !== 1) {
     throw new Error('--repo only works when the workspace has exactly one repo without a GitHub origin; set the origin instead');
   }
+  // A repo whose origin is on another host takes no name and no step: refuse before anything is written.
+  for (const { abs, path, key } of found) {
+    const { url, github } = originOf(abs);
+    if (!url || github) continue;
+    if (names.has(key)) throw new Error(`--name: '${path}' has an origin that is not on GitHub`);
+    if (doneBy.get(key).size > 0) throw new Error(`--done: '${path}' has an origin that is not on GitHub`);
+  }
   const repos = [];
   const named = [];
+  const foreign = [];
   for (const { repo, abs, path, key } of found) {
     const visibility = VISIBILITIES.includes(repo.visibility) ? repo.visibility : null;
     let place = slugOf(abs, given);
@@ -301,6 +309,7 @@ export function githubChecklist(dir, { repo: given, done = [], owner, name = [] 
     const other = Boolean(url) && !github;
     if (other) place = { slug: null, remote: false };
     named.push(isNamed && !other);
+    foreign.push(other);
     repos.push({ path, ...place, ciOk: hasCiOk(abs), visibility });
   }
   const date = today();
@@ -312,7 +321,7 @@ export function githubChecklist(dir, { repo: given, done = [], owner, name = [] 
   const content = {
     [CHECKLIST]: markdown(view, lang, done.length > 0, docs),
     [RULESET]: JSON.stringify(RULESET_BODY, null, 2) + '\n',
-    ...(repos.some((r) => !r.ciOk) ? { [LOOSE_RULESET]: JSON.stringify(LOOSE_BODY, null, 2) + '\n' } : {}),
+    ...(repos.some((r, i) => !r.ciOk && !foreign[i]) ? { [LOOSE_RULESET]: JSON.stringify(LOOSE_BODY, null, 2) + '\n' } : {}),
   };
   // The hash of the checklist as github-checklist last wrote it: the origins (and so the slugs) change once init
   // created a repo, so only this record tells an untouched checklist from one the person edited.
@@ -418,7 +427,8 @@ export function githubPlan(dir, { owner, name = [], docs = false } = {}) {
  * Two repos that would be created under the same `owner/name` (GitHub compares them in any case): every
  * one of them without an origin gets `create` skipped as `duplicate name` and no push or settings, so Init
  * asks for another name. A repo whose slug comes from an origin is never flagged, but its name is taken.
- * Changes the plans in place.
+ * Changes the plans in place. The reason the create step already had stays beside it (`duplicate name; no
+ * visibility`), and so does a push reason (`no origin; dirty`), so the rename does not hide it.
  */
 function flagDuplicates(plans) {
   const groups = new Map();
@@ -431,7 +441,13 @@ function flagDuplicates(plans) {
   for (const group of groups.values()) {
     if (group.length < 2) continue;
     for (const p of group.filter((r) => !r.exists)) {
-      p.steps = [{ kind: 'create', skipped: 'duplicate name' }, ...(p.steps.length > 1 ? [{ kind: 'push', skipped: 'no origin' }, { kind: 'settings', skipped: 'no origin' }] : [])];
+      const create = p.steps[0];
+      const push = p.steps.find((x) => x.kind === 'push');
+      const beside = (own, base) => (own?.skipped && own.skipped !== 'no origin' ? `${base}; ${own.skipped}` : base);
+      p.steps = [
+        { kind: 'create', skipped: beside(create, 'duplicate name') },
+        ...(p.steps.length > 1 ? [{ kind: 'push', skipped: beside(push, 'no origin') }, { kind: 'settings', skipped: 'no origin' }] : []),
+      ];
     }
   }
 }
