@@ -122,7 +122,7 @@ test('deploy-gate does not check names the deploy workflow sets itself', () => {
 });
 
 test('deploy-gate reads the deploy target from the plan and handles paas', () => {
-  assert.match(text, /plan "<repo folder>".{0,120}field `deploy`/i);
+  assert.match(text, /plan "<repo folder>".{0,160}field `deploy`/i);
   assert.match(text, /`paas`.{0,80}checks 1, 2 and 6 only/i);
   assert.match(text, /not applicable \(the provider deploys from main\)/i);
   assert.match(text, /only for the targets `container` and `webspace`/i);
@@ -135,10 +135,12 @@ test('deploy-gate handles deploy target none with checks 1, 2 and 6 only', () =>
   assert.match(text, /verdict .{0,40}from (checks )?1, 2 and 6.{0,80}no deploy workflow (is )?needed/i);
 });
 
-test('deploy-gate gives NO-GO when the plan target and the present deploy workflow disagree', () => {
-  assert.match(text, /plan target and a deploy workflow file contradict each other, name both/i);
-  assert.match(text, /NO-GO "deploy target unclear"; do not guess/i);
-  assert.match(text, /`deployment\.yml`.{0,120}`deployment-webspace\.yml`/);
+test('deploy-gate takes the target from the deploy workflow present, and from the plan only without one', () => {
+  assert.match(text, /`deployment-webspace.yml`.{0,40}`webspace`/);
+  assert.match(text, /`deployment.yml`.{0,40}`container`/);
+  assert.match(text, /only when neither exists.{0,160}field `deploy`.{0,60}`paas` or `none`/i);
+  assert.doesNotMatch(text, /deploy target unclear/i);
+  assert.doesNotMatch(text, /contradict each other/i);
 });
 
 test('deploy-gate reads modules from the plan when the repo entry has no standards', () => {
