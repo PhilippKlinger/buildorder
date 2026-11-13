@@ -83,14 +83,14 @@ function refusal(d) {
 /**
  * The standards to record for a repo with option modules or deselected items: the modules of its read-only plan
  * (stack module, docker-cicd when an image is planned), then the options, without duplicates; the plan's deviations.
- * `without` (['<id>=<reason>']) is planned like `plan --without`. No repo file is written. A repo that cannot be
+ * `without` (['<id>=<reason>']) is planned like `plan --without`.  `visibility` is the one chosen for the repo. No repo file is written. A repo that cannot be
  * planned (no code, no git) records the options only.
  */
-function recorded(root, repo, options, without = []) {
+function recorded(root, repo, options, without = [], visibility) {
   let plan = { modules: [], deviations: [] };
   if (repo.isCode || without.length) {
     try {
-      plan = standard(resolve(root, repo.path), { without });
+      plan = standard(resolve(root, repo.path), { without, ...(visibility ? { visibility } : {}) });
     } catch { /* not plannable: options only */ }
   }
   return { modules: [...new Set([...plan.modules, ...options])], deviations: plan.deviations };
@@ -192,7 +192,7 @@ function pickRepos(root, found, wanted, visibility = new Map(), modules = new Ma
       isCode: r.isCode,
       stacks: r.stacks,
       ...(vis.has(key) ? { visibility: vis.get(key) } : {}),
-      ...(mods.get(key)?.length || wo.get(key)?.length ? { standards: recorded(root, r, mods.get(key) ?? [], wo.get(key) ?? []) } : {}),
+      ...(mods.get(key)?.length || wo.get(key)?.length ? { standards: recorded(root, r, mods.get(key) ?? [], wo.get(key) ?? [], vis.get(key)) } : {}),
     };
   };
   if (!wanted?.length) return found.map(entry);

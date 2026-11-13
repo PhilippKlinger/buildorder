@@ -502,3 +502,14 @@ test('scaffold refuses an unknown --without id or path before writing anything',
     assert.deepEqual(tree(root), before);
   }
 });
+
+// --- 1.3.1 (A6): the recorded plan follows the chosen visibility ---
+
+test('scaffold records the private deviations for a repo scaffolded as private', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--visibility', 'shop/api=private', '--visibility', 'shop/web=public', '--with', 'versioning');
+  const ids = (p) => (devOf(root, p) ?? []).map((d) => d.id);
+  assert.ok(ids('shop/api').includes('codeql'), 'private: codeql skipped');
+  assert.ok(ids('shop/api').includes('dependency-review'), 'private: dependency-review skipped');
+  assert.ok(!ids('shop/web').includes('codeql'), 'public: nothing skipped');
+});
