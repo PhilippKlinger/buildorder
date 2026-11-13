@@ -75,12 +75,19 @@ keep both (default); prefer the Buildorder version (one line in the workspace `C
 reversible); remove the old skill (personal and workspace skills only). There is no "remove" option for repo skills:
 Buildorder never changes the content of the repos.
 
-**Removing a skill** takes one fixed command and nothing else. `<folder>` is the folder that holds the finding's
+**Removing a skill** moves the folder to a backup; it never deletes it. `<folder>` is the folder that holds the finding's
 `SKILL.md` (its `path` without the file name). Offer the removal only when that folder's parent is exactly
 `~/.claude/skills` or `<root>/.claude/skills` (the home folder and the workspace root; on Windows compared without
-case and with either slash); otherwise offer no removal. Show the command before it runs, then run it only after the
-user's explicit consent, one call per skill: `rm -r -- '<folder>'` with Bash, `Remove-Item -LiteralPath '<folder>' -Recurse`
-with PowerShell. No wildcard, no other path, no other command.
+case and with either slash); otherwise offer no removal. The backup folder is `skills-backup` next to it
+(`~/.claude/skills-backup` or `<root>/.claude/skills-backup`, written as an absolute path); the target is
+`<backup>/<name>-<YYYY-MM-DD>`, with `<name>` the folder name and today's date. Show both commands before they run,
+then run them only after the user's explicit consent, one call per command, one skill at a time:
+- Bash: `mkdir -p -- '<backup>'`, then `mv -n -- '<folder>' '<backup>/<name>-<YYYY-MM-DD>'`
+- PowerShell: `New-Item -ItemType Directory -Force -Path '<backup>'`, then
+  `Move-Item -LiteralPath '<folder>' -Destination '<backup>/<name>-<YYYY-MM-DD>'`
+
+No wildcard, no other path, no other command. If the target exists, stop and say so. Then tell the user how to undo it:
+move the folder back to `<folder>` (`mv -n -- '<backup>/<name>-<YYYY-MM-DD>' '<folder>'` or `Move-Item` with the two paths swapped).
 
 **New project:**
 1. In chat, unless the start text answers it: "Idea, audience and when it is done, in 2–3 sentences."

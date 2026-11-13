@@ -138,10 +138,18 @@ test('init texts match 1.3: several repos, the scaffold call, the backlog task (
   assert.match(github, /backlog task/);
 });
 
-test('init removes a skill with one fixed command, only from the two skill folders, after showing it (M11)', () => {
-  assert.match(text, /rm -r -- '<folder>'/);
-  assert.match(text, /Remove-Item -LiteralPath '<folder>' -Recurse/);
+test('init removes a skill only from the two skill folders, after showing the command (M11)', () => {
   assert.match(text, /parent is exactly `~\/\.claude\/skills` or `<root>\/\.claude\/skills`/);
-  assert.match(text, /show the command before it runs/i);
-  assert.doesNotMatch(frontmatter(raw)['allowed-tools'], /\brm\b|Remove-Item/);
+  assert.match(text, /Show both commands before they run/i);
+  assert.doesNotMatch(frontmatter(raw)['allowed-tools'], /\brm\b|Remove-Item|\bmv\b|Move-Item/);
+});
+
+test('init moves a removed skill to a backup folder instead of deleting it', () => {
+  assert.match(text, /mkdir -p -- '<backup>'/);
+  assert.match(text, /mv -n -- '<folder>' '<backup>\/<name>-<YYYY-MM-DD>'/);
+  assert.match(text, /New-Item -ItemType Directory -Force -Path '<backup>'/);
+  assert.match(text, /Move-Item -LiteralPath '<folder>' -Destination '<backup>\/<name>-<YYYY-MM-DD>'/);
+  assert.match(text, /skills-backup/);
+  assert.match(text, /how to undo it/);
+  assert.doesNotMatch(text, /rm -r|Remove-Item/);
 });
