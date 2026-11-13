@@ -12,6 +12,9 @@ Assess the repo **$ARGUMENTS**. Read and judge only: change nothing in the repo.
 run no tests, commit nothing. The only file you write is the audit file. Leave the sprint and backlog files alone;
 the caller takes the proposed tasks over.
 
+**Commands:** run every command from the session's working directory, one command per call: never prefix `cd`, never
+chain with `&&`, `;` or pipes.
+
 ## Workspace state (live)
 
 !`node "${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs" status`

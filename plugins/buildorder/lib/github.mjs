@@ -69,8 +69,11 @@ function slugOf(abs, given) {
   const m = originMatch(abs);
   if (m) return { slug: `${m[1]}/${m[2]}`, remote: true };
   if (given) return { slug: given, remote: true };
-  return { slug: `OWNER/${basename(abs).replace(/[^\w.-]+/g, '-')}`, remote: false };
+  return { slug: `OWNER/${placeholderName(abs)}`, remote: false };
 }
+
+/** The folder name as a repo name: blanks and other characters GitHub refuses become a hyphen. */
+const placeholderName = (abs) => basename(abs).replace(/[^\w.-]+/g, '-');
 
 // A ruleset without required checks, for a repo whose CI has no `ci-ok` job yet: requiring it would hold every PR.
 const LOOSE_RULESET = 'docs/github-ruleset-without-checks.json';
@@ -121,6 +124,8 @@ const shellLine = (cmd) => cmd.map((a) => (/^[\w./=:@%+-]+$/.test(a) ? a : `"${a
 
 function section(repo, tx, stepsMode) {
   const { path, slug, remote, visibility, done, date } = repo;
+  // An origin on another host: Buildorder sets nothing up there.
+  if (slug === null) return [`## ${path}`, '', ...lines(tx.nonGithub), ''];
   const cmds = settingsCommands(slug, repo);
   const t = (key) => lines(fill(tx[key], { slug, check: REQUIRED_CHECK, ruleset: RULESET_BODY.name, date }));
   const block = (cmd) => ['  ```', `  ${shellLine(cmd)}`, '  ```'];
@@ -137,14 +142,14 @@ function section(repo, tx, stepsMode) {
   const settings = [...ruleset, ...secrets, ...alerts, ...t('verify')];
   // Only with --done: the create and push steps, ticked with the date or still open with their command.
   const createOpen = remote ? [] : [...t('createOpen'), ...(visibility ? block(createCommand(slug, visibility, path)) : [])];
-  const stepLines = !stepsMode ? [] : [
+  const stepLines = !stepsMode ? (repo.named ? createOpen : []) : [
     ...(done.has('create') ? t('createDone') : createOpen),
     ...(done.has('push') ? t('pushDone') : [...t('pushOpen'), ...block(pushCommand(path))]),
   ];
   return [
     `## ${path} (\`${slug}\`)`,
     '',
-    ...(remote ? [] : [...t('noRemote'), '']),
+    ...(remote || repo.named ? [] : [...t('noRemote'), '']),
     ...stepLines,
     ...(done.has('settings') ? t('settingsDone') : settings),
     '',
@@ -206,6 +211,34 @@ function splitPair(v, flag, what) {
   return [slashes(v.slice(0, i)), v.slice(i + 1)];
 }
 
+const OWNER_ERROR = '--owner must be a GitHub login (letters, digits, hyphens)';
+
+/**
+ * The --owner and --name <path>=<name> values both commands take, validated before anything is written:
+ * Map<normalized path, name> (the docs repo is the empty key, accepted when `docs` is set). The owner may be missing
+ * only when `optional` is set and no name is given. Throws on a bad owner, a malformed or unknown path and a bad name.
+ */
+function repoNames(root, found, { owner, name = [], docs = false, optional = false }) {
+  if (owner === undefined && optional) {
+    if (name.length) throw new Error('--name needs --owner');
+  } else if (typeof owner !== 'string' || !validSlug(`${owner}/x`)) {
+    throw new Error(OWNER_ERROR);
+  }
+  const keys = new Set(found.map((f) => f.key));
+  const names = new Map();
+  for (const entry of name) {
+    const [path, value] = splitPair(entry, '--name', 'name');
+    const key = keyOf(root, path);
+    if (!(key === '' ? docs : keys.has(key))) throw new Error(`--name: unknown repo path '${path}'`);
+    if (!validSlug(`${owner}/${value}`)) throw new Error(`--name: '${value}' is not a valid repo name`);
+    names.set(key, value);
+  }
+  return names;
+}
+
+/** The default name of the docs repo: workspace name plus -docs. */
+const docsNameOf = (ws, root) => `${ws.name ?? basename(root)}-docs`.replace(/[^\w.-]+/g, '-');
+
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -226,7 +259,7 @@ const today = () => {
  * current state (state `updated`) only while its hash equals that record, else it stays (state `changed`).
  * Throws outside a Buildorder workspace, for a malformed `repo` and for an unknown `done` path or step (before any write).
  */
-export function githubChecklist(dir, { repo: given, done = [] } = {}) {
+export function githubChecklist(dir, { repo: given, done = [], owner, name = [] } = {}) {
   if (given !== undefined && !validSlug(given)) throw new Error('--repo must look like owner/name (a GitHub owner and repo name)');
   const root = findWorkspaceRoot(dir);
   const ws = root ? loadWorkspace(root) : null;
@@ -234,6 +267,7 @@ export function githubChecklist(dir, { repo: given, done = [] } = {}) {
   // The docs language of the workspace; anything but `de` (missing, unknown) keeps the English text.
   const lang = ws.language?.docs === 'de' ? 'de' : 'en';
   const found = workspaceRepos(root, ws);
+  const names = repoNames(root, found, { owner, name, docs: true, optional: true });
   const doneBy = new Map(found.map((f) => [f.key, new Set()]));
   let docsDone = false;
   for (const entry of done) {
@@ -254,18 +288,40 @@ export function githubChecklist(dir, { repo: given, done = [] } = {}) {
   if (given !== undefined && found.filter((f) => !originMatch(f.abs)).length !== 1) {
     throw new Error('--repo only works when the workspace has exactly one repo without a GitHub origin; set the origin instead');
   }
+  // A repo whose origin is on another host takes no name and no step: refuse before anything is written.
+  for (const { abs, path, key } of found) {
+    const { url, github } = originOf(abs);
+    if (!url || github) continue;
+    if (names.has(key)) throw new Error(`--name: '${path}' has an origin that is not on GitHub`);
+    if (doneBy.get(key).size > 0) throw new Error(`--done: '${path}' has an origin that is not on GitHub`);
+  }
   const repos = [];
-  for (const { repo, abs, path } of found) {
+  const named = [];
+  const foreign = [];
+  for (const { repo, abs, path, key } of found) {
     const visibility = VISIBILITIES.includes(repo.visibility) ? repo.visibility : null;
-    repos.push({ path, ...slugOf(abs, given), ciOk: hasCiOk(abs), visibility });
+    let place = slugOf(abs, given);
+    // The owner and name of the interview replace the placeholder; an origin or --repo still wins.
+    const isNamed = owner !== undefined && !place.remote;
+    if (isNamed) place = { slug: `${owner}/${names.get(key) ?? placeholderName(abs)}`, remote: false };
+    // An origin on another host: no slug, one sentence instead of commands.
+    const { url, github } = originOf(abs);
+    const other = Boolean(url) && !github;
+    if (other) place = { slug: null, remote: false };
+    named.push(isNamed && !other);
+    foreign.push(other);
+    repos.push({ path, ...place, ciOk: hasCiOk(abs), visibility });
   }
   const date = today();
-  const view = repos.map((r, i) => ({ ...r, done: doneBy.get(found[i].key), date }));
-  const docs = docsDone ? { slug: slugOf(root).slug, date } : null;
+  const view = repos.map((r, i) => ({ ...r, done: doneBy.get(found[i].key), date, named: named[i] }));
+  const docsSlug = owner === undefined || originMatch(root)
+    ? slugOf(root).slug
+    : `${owner}/${names.get('') ?? docsNameOf(ws, root)}`;
+  const docs = docsDone ? { slug: docsSlug, date } : null;
   const content = {
     [CHECKLIST]: markdown(view, lang, done.length > 0, docs),
     [RULESET]: JSON.stringify(RULESET_BODY, null, 2) + '\n',
-    ...(repos.some((r) => !r.ciOk) ? { [LOOSE_RULESET]: JSON.stringify(LOOSE_BODY, null, 2) + '\n' } : {}),
+    ...(repos.some((r, i) => !r.ciOk && !foreign[i]) ? { [LOOSE_RULESET]: JSON.stringify(LOOSE_BODY, null, 2) + '\n' } : {}),
   };
   // The hash of the checklist as github-checklist last wrote it: the origins (and so the slugs) change once init
   // created a repo, so only this record tells an untouched checklist from one the person edited.
@@ -304,7 +360,8 @@ const skipAll = (reason) => STEPS.map((kind) => ({ kind, skipped: reason }));
  * `{ ok, repos: [{ path, slug, visibility, exists, steps }], docs }`. `exists` is true when the repo has an origin
  * on GitHub (only then may Init offer "settings only"). A step is `{ kind, commands: [string[]] }` or
  * `{ kind, skipped }`: `origin exists`, `no visibility` or `invalid name` for create; `no main` or `dirty` for
- * push; `no origin` for push and settings when there is nothing to push to; `non-GitHub origin` for all three
+ * push; `no origin` for push and settings when there is nothing to push to; `duplicate name` for create (then push and
+ * settings are `no origin`) when another repo or the docs repo gets the same `owner/name`; `non-GitHub origin` for all three
  * when the origin is on another host (slug null). A public repo has two settings steps (alerts and secret scanning before push, the ruleset after it). A settings step lists `ticks`: the `--done` step of each
  * command (`settings:alerts`, `settings:secrets`, `settings:ruleset`). `docs` is null unless `docs` is set:
  * then the workspace root gets one private `create` step.
@@ -313,20 +370,11 @@ const skipAll = (reason) => STEPS.map((kind) => ({ kind, skipped: reason }));
  * the recorded path. Throws outside a Buildorder workspace and for a bad owner, name or path.
  */
 export function githubPlan(dir, { owner, name = [], docs = false } = {}) {
-  if (typeof owner !== 'string' || !validSlug(`${owner}/x`)) throw new Error('--owner must be a GitHub login (letters, digits, hyphens)');
   const root = findWorkspaceRoot(dir);
   const ws = root ? loadWorkspace(root) : null;
   if (!ws) throw new Error(`not inside a Buildorder workspace: ${resolve(dir)}`);
   const found = workspaceRepos(root, ws);
-  const keys = new Set(found.map((f) => f.key));
-  const names = new Map();
-  for (const entry of name) {
-    const [path, value] = splitPair(entry, '--name', 'name');
-    const key = keyOf(root, path);
-    if (!(key === '' ? docs : keys.has(key))) throw new Error(`--name: unknown repo path '${path}'`);
-    if (!validSlug(`${owner}/${value}`)) throw new Error(`--name: '${value}' is not a valid repo name`);
-    names.set(key, value);
-  }
+  const names = repoNames(root, found, { owner, name, docs });
   const repos = found.map(({ repo, abs, key, path }) => {
     const visibility = VISIBILITIES.includes(repo.visibility) ? repo.visibility : null;
     const { url, github } = originOf(abs);
@@ -361,7 +409,7 @@ export function githubPlan(dir, { owner, name = [], docs = false } = {}) {
   });
   let docsPlan = null;
   if (docs) {
-    const docsName = names.get('') ?? `${ws.name ?? basename(root)}-docs`.replace(/[^\w.-]+/g, '-');
+    const docsName = names.get('') ?? docsNameOf(ws, root);
     const { url, github } = originOf(root);
     const slug = github ? `${github[1]}/${github[2]}` : url ? null : `${owner}/${docsName}`;
     let step;
@@ -371,5 +419,35 @@ export function githubPlan(dir, { owner, name = [], docs = false } = {}) {
     else step = { kind: 'create', commands: [createCommand(slug, 'private', '.')] };
     docsPlan = { path: '.', slug, visibility: 'private', exists: Boolean(github), steps: [step] };
   }
+  flagDuplicates([...repos, ...(docsPlan ? [docsPlan] : [])]);
   return { ok: true, repos, docs: docsPlan };
+}
+
+/**
+ * Two repos that would be created under the same `owner/name` (GitHub compares them in any case): every
+ * one of them without an origin gets `create` skipped as `duplicate name` and no push or settings, so Init
+ * asks for another name. A repo whose slug comes from an origin is never flagged, but its name is taken.
+ * Changes the plans in place. The reason the create step already had stays beside it (`duplicate name; no
+ * visibility`), and so does a push reason (`no origin; dirty`), so the rename does not hide it.
+ */
+function flagDuplicates(plans) {
+  const groups = new Map();
+  for (const p of plans) {
+    // A non-GitHub origin has no slug; a name GitHub refuses is reported as invalid on its own.
+    if (p.slug === null || (!p.exists && !validSlug(p.slug))) continue;
+    const key = p.slug.toLowerCase();
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    for (const p of group.filter((r) => !r.exists)) {
+      const create = p.steps[0];
+      const push = p.steps.find((x) => x.kind === 'push');
+      const beside = (own, base) => (own?.skipped && own.skipped !== 'no origin' ? `${base}; ${own.skipped}` : base);
+      p.steps = [
+        { kind: 'create', skipped: beside(create, 'duplicate name') },
+        ...(p.steps.length > 1 ? [{ kind: 'push', skipped: beside(push, 'no origin') }, { kind: 'settings', skipped: 'no origin' }] : []),
+      ];
+    }
+  }
 }

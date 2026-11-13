@@ -5,6 +5,7 @@
     "> Befehle selbst im Workspace-Root aus, sobald das Repo auf GitHub existiert und `main` gepusht ist. Du brauchst die",
     "> GitHub CLI, angemeldet mit Admin-Rechten auf dem Repo (`gh auth status`)."
   ],
+  "nonGithub": "Der Origin liegt nicht auf GitHub; dafür richtet Buildorder nichts ein.",
   "noRemote": "Noch kein GitHub-Remote: ersetze `{{slug}}` nach dem ersten Push durch Besitzer und Namen des Repos.",
   "ruleset": "- [ ] Ruleset für den Standard-Branch: nur Pull Requests, kein Force-Push, kein Löschen, Pflicht-Check `{{check}}`",
   "looseRuleset": [

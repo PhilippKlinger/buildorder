@@ -222,12 +222,25 @@ function defaultDeploy(root) {
   return DEPLOY_TARGETS.includes(target) ? target : 'none';
 }
 
+/** The visibility recorded for the repo `root` in its enclosing workspace.json, or null. */
+function recordedVisibility(root) {
+  const wsRoot = findWorkspaceRoot(root);
+  const ws = wsRoot ? loadWorkspace(wsRoot) : null;
+  const key = wsRoot ? relativeTo(root, wsRoot) : null;
+  if (!ws || !key) return null;
+  const entry = (Array.isArray(ws.repos) ? ws.repos : [])
+    .find((r) => typeof r?.path === 'string' && relativeTo(resolve(wsRoot, r.path), wsRoot) === key);
+  return VISIBILITIES.includes(entry?.visibility) ? entry.visibility : null;
+}
+
 /**
  * What the options select: the stack module, the deploy target and the skipped items with their
  * reason. `deviations` are the skips a person decided (deselection, private repo); a deploy that
  * falls away with the image or by its target is a consequence, not a deviation.
  */
-function selection(root, model, { stack, deploy, visibility = 'public', without, starter, with: withIds }, stacksDir) {
+function selection(root, model, { stack, deploy, visibility: given, without, starter, with: withIds }, stacksDir) {
+  // An explicit --visibility wins, then what workspace.json records for the repo, else public.
+  const visibility = given ?? recordedVisibility(root) ?? 'public';
   if (deploy !== undefined && !DEPLOY_TARGETS.includes(deploy)) {
     throw new Error(`--deploy must be one of ${DEPLOY_TARGETS.join(', ')}`);
   }
@@ -328,6 +341,8 @@ function failure(root, check, workflows) {
   }
   const pattern = check.workflow?.find((p) => !new RegExp(p).test(workflows));
   if (pattern) return `no workflow matches '${pattern}'`;
+  // Nothing to pin yet: the standard's ci.yml will bring the workflows, so this is a gap, not an unpinned action.
+  if (check.pins && workflows.trim() === '') return 'no workflows yet';
   if (check.pins && !allPinned(workflows)) return 'a workflow action is not pinned to a full commit SHA';
   return null;
 }

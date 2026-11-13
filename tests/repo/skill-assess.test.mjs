@@ -19,3 +19,8 @@ test('assess shows the audit in the reply and stops when writing it is refused',
   assert.match(text, /write is refused.{0,200}show the audit text in the reply and stop/i);
   assert.match(text, /no heredoc, no shell, no other file/i);
 });
+
+test('assess forbids cd and command chains', () => {
+  assert.match(text, /from the session's working directory/i);
+  assert.match(text, /never prefix `cd`, never chain with `&&`, `;` or pipes/i);
+});

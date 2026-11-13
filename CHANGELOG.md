@@ -5,6 +5,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [1.3.1] - 2026-11-13
+
+### Fixed
+
+- `standard` and `plan` default to the visibility recorded in `workspace.json` instead of `public`.
+- `scaffold --without [<path>:]<id>=<reason>` records skipped standard items as deviations per repo.
+- `scaffold` records the plan with the chosen visibility for the repos that get standards (private deviations were missing).
+- `init` requires two options per check and pre-approves `Skill(buildorder:assess *)` so the call with an argument matches; `assess` runs one command per call without `cd` or chains.
+- `github-plan` flags repos that would get the same GitHub name (`duplicate name`).
+- `github-checklist` takes `--owner` and `--name` and gives a repo with a non-GitHub origin one sentence instead of commands.
+- `standard` reports `action-pins` as "no workflows yet" when the repo has no workflows, not as unpinned actions.
+- Init asks every question, confirmation and understanding check as a dialog and never ends the turn to wait, so pre-approvals keep holding.
+- Init shows the exact commands of every consent (GitHub, docs repo, skill removal) inside the dialog.
+- Init names `<owner>/<name>` in the consent, offers another name, checks with `gh repo view` that a new name is free and asks for names on a duplicate.
+- Init runs every command from the workspace root, one per call, without `cd`, chains or temp files.
+- Init passes skipped standard items to `scaffold --without`, so deviations reach `workspace.json`.
+- Init shows the option modules (`web-quality`, `versioning`) in the confirmation with the recommendation, not as an interview question.
+- Init settles every GitHub name before it writes the checklist and passes `--owner` and `--name` to every `github-checklist` call, including the final `--done`, so a renamed repo keeps its name.
+- Init asks the understanding check and the new-project question with two real options.
+- Init lists `nest` and the `safeDirectory` command among the consents that show their commands, and says what a new name in the consent does.
+- `github-plan` keeps the original skip reason beside `duplicate name` (for example `duplicate name; no visibility`).
+- `github-checklist` refuses `--name` and `--done` for a repo with a non-GitHub origin before it writes, and writes no ruleset without checks for such a repo.
+
 ## [1.3.0] - 2026-11-13
 
 ### Added

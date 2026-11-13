@@ -208,3 +208,45 @@ test('github-plan keeps create, push, settings for a private repo', () => {
   assert.deepEqual(api.steps.map((s) => s.kind), ['create', 'push', 'settings']);
   assert.deepEqual(step(api, 'settings').ticks, ['settings:alerts', 'settings:ruleset']);
 });
+
+// --- 1.3.1 (practice test S5-1): two repos, one GitHub name ---
+
+test('github-plan flags repos that would get the same GitHub name', () => {
+  const { root } = ws({ sameName: true, visibility: { 'a/app': 'public', 'b/app': 'private' } });
+  const out = plan(root, '--owner', 'o');
+  for (const path of ['a/app', 'b/app']) {
+    const repo = repoOf(out, path);
+    assert.equal(repo.slug, 'o/app');
+    assert.deepEqual(repo.steps, [
+      { kind: 'create', skipped: 'duplicate name' },
+      { kind: 'push', skipped: 'no origin' },
+      { kind: 'settings', skipped: 'no origin' },
+    ]);
+  }
+  // A --name that makes them differ clears the flag again.
+  const fixed = plan(root, '--owner', 'o', '--name', 'b/app=app-b');
+  assert.ok(step(repoOf(fixed, 'a/app'), 'create').commands);
+  assert.ok(step(repoOf(fixed, 'b/app'), 'create').commands);
+  assert.equal(repoOf(fixed, 'b/app').slug, 'o/app-b');
+  // A repo whose slug comes from its origin is never flagged, also when another repo wants the same name.
+  const origin = ws({ sameName: true, withOrigin: ['a/app'], visibility: { 'b/app': 'private' } });
+  const o = plan(origin.root, '--owner', 'o');
+  assert.deepEqual(step(repoOf(o, 'a/app'), 'create'), { kind: 'create', skipped: 'origin exists' });
+  assert.deepEqual(step(repoOf(o, 'b/app'), 'create'), { kind: 'create', skipped: 'duplicate name' });
+  // The docs repo counts too.
+  const docs = ws({ visibility: { 'shop/api': 'private' } });
+  const d = plan(docs.root, '--owner', 'o', '--docs', '--name', 'shop/api=shop-docs');
+  assert.deepEqual(step(repoOf(d, 'shop/api'), 'create'), { kind: 'create', skipped: 'duplicate name' });
+  assert.deepEqual(d.docs.steps, [{ kind: 'create', skipped: 'duplicate name' }]);
+});
+
+test('github-plan keeps the original skip reason beside duplicate name', () => {
+  // b/app has no recorded visibility, so its create was skipped before the duplicate check.
+  const { root } = ws({ sameName: true, visibility: { 'a/app': 'private' } });
+  const out = plan(root, '--owner', 'o');
+  assert.deepEqual(step(repoOf(out, 'b/app'), 'create'), { kind: 'create', skipped: 'duplicate name; no visibility' });
+  assert.deepEqual(step(repoOf(out, 'a/app'), 'create'), { kind: 'create', skipped: 'duplicate name' });
+  // A repo that cannot push for its own reason keeps that reason too.
+  const dirty = ws({ sameName: true, visibility: { 'a/app': 'private', 'b/app': 'private' }, dirty: ['a/app'] });
+  assert.deepEqual(step(repoOf(plan(dirty.root, '--owner', 'o'), 'a/app'), 'push'), { kind: 'push', skipped: 'no origin; dirty' });
+});
