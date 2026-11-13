@@ -114,5 +114,17 @@ test('deploy-gate checks the waiting deploy job through the run jobs', () => {
 });
 
 test('deploy-gate: docker-cicd without a deploy workflow is NO-GO', () => {
-  assert.match(text, /neither `deployment\.yml` nor `deployment-webspace\.yml`.{0,120}NO-GO.{0,60}the module's deploy workflow is missing/i);
+  assert.match(text, /deploy workflow of the target is missing.{0,40}NO-GO.{0,60}the module's deploy workflow is missing/i);
+});
+
+test('deploy-gate does not check names the deploy workflow sets itself', () => {
+  assert.match(text, /names the deploy workflow sets itself.{0,80}`APP_IMAGE`.{0,120}not checked/i);
+});
+
+test('deploy-gate reads the deploy target from the plan and handles paas', () => {
+  assert.match(text, /plan "<repo folder>".{0,120}field `deploy`/i);
+  assert.match(text, /`paas`.{0,80}checks 1, 2 and 6 only/i);
+  assert.match(text, /not applicable \(the provider deploys from main\)/i);
+  assert.match(text, /only for the targets `container` and `webspace`/i);
+  assert.doesNotMatch(text, /does not reach this skill/i);
 });
