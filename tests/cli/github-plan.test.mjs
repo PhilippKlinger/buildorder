@@ -178,7 +178,9 @@ test('github-plan skips create for a folder name GitHub would refuse (M2)', () =
 test('github-plan orders the settings alerts, secret scanning, ruleset and names the --done step of each (M6)', () => {
   const { root } = ws({ withOrigin: ['shop/web'] });
   const out = plan(root, '--owner', 'o');
-  const web = step(repoOf(out, 'shop/web'), 'settings');
+  // A public repo has two settings steps (before and after the push); together they hold all three commands.
+  const parts = repoOf(out, 'shop/web').steps.filter((s) => s.kind === 'settings');
+  const web = { ticks: parts.flatMap((s) => s.ticks), commands: parts.flatMap((s) => s.commands) };
   assert.deepEqual(web.ticks, ['settings:alerts', 'settings:secrets', 'settings:ruleset']);
   assert.ok(web.commands[0].includes('repos/o/web/vulnerability-alerts'));
   assert.ok(web.commands[1].some((a) => a.includes('secret_scanning')));
@@ -186,4 +188,23 @@ test('github-plan orders the settings alerts, secret scanning, ruleset and names
   const api = step(repoOf(out, 'shop/api'), 'settings');
   assert.deepEqual(api.ticks, ['settings:alerts', 'settings:ruleset'], 'private: no secret scanning');
   assert.equal(api.commands.length, api.ticks.length);
+});
+
+test('github-plan enables alerts and secret scanning before the push for a public repo', () => {
+  const { root } = ws();
+  const web = repoOf(plan(root, '--owner', 'o'), 'shop/web');
+  assert.deepEqual(web.steps.map((s) => s.kind), ['create', 'settings', 'push', 'settings']);
+  const [, first, , second] = web.steps;
+  assert.deepEqual(first.ticks, ['settings:alerts', 'settings:secrets']);
+  assert.ok(first.commands[0].includes('repos/o/web/vulnerability-alerts'));
+  assert.ok(first.commands[1].some((a) => a.includes('secret_scanning_push_protection')));
+  assert.deepEqual(second.ticks, ['settings:ruleset']);
+  assert.ok(second.commands[0].includes('repos/o/web/rulesets'));
+});
+
+test('github-plan keeps create, push, settings for a private repo', () => {
+  const { root } = ws();
+  const api = repoOf(plan(root, '--owner', 'o'), 'shop/api');
+  assert.deepEqual(api.steps.map((s) => s.kind), ['create', 'push', 'settings']);
+  assert.deepEqual(step(api, 'settings').ticks, ['settings:alerts', 'settings:ruleset']);
 });

@@ -118,7 +118,8 @@ test('init renders every argument in single quotes and asks for --name on an inv
 });
 
 test('init runs the settings commands one by one and ticks each (M6)', () => {
-  assert.match(github, /alerts, then secret scanning, then the ruleset/);
+  assert.match(github, /in the order the plan lists them/);
+  assert.match(github, /alerts and secret scanning with push protection, then `push`, then the ruleset/);
   assert.match(github, /continue with the next settings command/);
   assert.match(github, /`settings:<name>`/);
   assert.match(github, /`ticks`/);

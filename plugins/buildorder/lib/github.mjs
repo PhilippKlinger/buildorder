@@ -305,7 +305,7 @@ const skipAll = (reason) => STEPS.map((kind) => ({ kind, skipped: reason }));
  * on GitHub (only then may Init offer "settings only"). A step is `{ kind, commands: [string[]] }` or
  * `{ kind, skipped }`: `origin exists`, `no visibility` or `invalid name` for create; `no main` or `dirty` for
  * push; `no origin` for push and settings when there is nothing to push to; `non-GitHub origin` for all three
- * when the origin is on another host (slug null). The settings step also lists `ticks`: the `--done` step of each
+ * when the origin is on another host (slug null). A public repo has two settings steps (alerts and secret scanning before push, the ruleset after it). A settings step lists `ticks`: the `--done` step of each
  * command (`settings:alerts`, `settings:secrets`, `settings:ruleset`). `docs` is null unless `docs` is set:
  * then the workspace root gets one private `create` step.
  * `owner` is required; `name` lists `<path>=<name>` (`.` names the docs repo); the default name is the folder name,
@@ -344,15 +344,19 @@ export function githubPlan(dir, { owner, name = [], docs = false } = {}) {
       steps.push({ kind: 'push', skipped: 'no origin' }, { kind: 'settings', skipped: 'no origin' });
       return { path, slug, visibility, exists: false, steps };
     }
+    const cmds = settingsCommands(slug, { ciOk: hasCiOk(abs), visibility });
+    const parts = SETTINGS_ORDER.filter((n) => cmds[n]);
+    const settingsStep = (names) => ({ kind: 'settings', commands: names.map((n) => cmds[n]), ticks: names.map((n) => `settings:${n}`) });
+    // A public repo gets alerts and secret scanning with push protection before the first push; the ruleset follows it.
+    const early = visibility === 'public' ? parts.filter((n) => n !== 'ruleset') : [];
+    if (early.length) steps.push(settingsStep(early));
     const hasMain = gitResult(abs, ['rev-parse', '--verify', '--quiet', 'refs/heads/main']).ok;
     // Without optional locks, status does not refresh and rewrite the index: the plan stays read-only.
     const clean = gitResult(abs, ['--no-optional-locks', 'status', '--porcelain']);
     if (!hasMain) steps.push({ kind: 'push', skipped: 'no main' });
     else if (!clean.ok || clean.stdout !== '') steps.push({ kind: 'push', skipped: 'dirty' });
     else steps.push({ kind: 'push', commands: [pushCommand(path)] });
-    const cmds = settingsCommands(slug, { ciOk: hasCiOk(abs), visibility });
-    const parts = SETTINGS_ORDER.filter((n) => cmds[n]);
-    steps.push({ kind: 'settings', commands: parts.map((n) => cmds[n]), ticks: parts.map((n) => `settings:${n}`) });
+    steps.push(settingsStep(parts.filter((n) => !early.includes(n))));
     return { path, slug, visibility, exists: Boolean(github), steps };
   });
   let docsPlan = null;

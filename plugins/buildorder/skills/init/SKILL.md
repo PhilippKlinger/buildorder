@@ -180,12 +180,12 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
    raw `gh` error text: one friendly sentence and the next step.
    1. Run `gh auth status`. If `gh` is missing or not logged in, run `github-checklist .` as before (add
       `--repo <owner/name>` when the user named the GitHub repo in the interview) and add one friendly sentence:
-      "To let me set this up next time, run `gh auth login`." Then go to step 6.
+      "To let me set this up next time, run `gh auth login`." Then go to section 6 (Close).
    2. Logged in: read the owner with `gh api user --jq .login`. Run `github-checklist .` first: it writes the ruleset
       files the settings commands need. Then run `github-plan . --owner <login> --docs [--name <path>=<name>]...`
-      (read-only, calls no `gh`; `--docs` adds the `docs` entry for step 3). Each repo has `exists` (true when its origin is on GitHub) and the steps `create`,
-      `push` and `settings`, each with `commands` or a `skipped` reason; the settings step also has `ticks`, the
-      `--done` step of each of its commands. If `create` is skipped with `invalid name`, the folder name is no valid
+      (read-only, calls no `gh`; `--docs` adds the `docs` entry for step 3). Each repo has `exists` (true when its origin is on GitHub) and the steps in the order to run
+      them (`create`, `push`, `settings`; a public repo lists `create`, `settings`, `push`, `settings`), each with
+      `commands` or a `skipped` reason; a settings step also has `ticks`, the `--done` step of each of its commands. If `create` is skipped with `invalid name`, the folder name is no valid
       GitHub repo name: ask for one and run `github-plan` again with `--name <path>=<name>`.
    3. **Docs repo:** the workspace root is opt-in, and the docs repo has its own consent, separate from the code
       repos. Ask "Create a GitHub remote for the docs, or keep them local?" and show the exact command from the
@@ -197,8 +197,10 @@ Write in `language.docs` with targeted edits. Invent nothing: unknowns go to `as
       yes / no, because its settings would go to a repo that does not exist yet or belongs to someone else. On "no"
       leave the repo to the checklist. A repo whose steps are all skipped (for example `non-GitHub origin`) gets no
       question: name the reason.
-   5. Run the consented commands one by one, exactly as `github-plan` gave them: `create`, then `push`, then the
-      settings commands in their order (alerts, then secret scanning, then the ruleset). Only `main` is ever pushed;
+   5. Run the consented commands one by one, exactly as `github-plan` gave them: the steps in the order the plan
+      lists them. A private repo: `create`, `push`, then the settings commands (alerts, then the ruleset). A public repo:
+      `create`, then alerts and secret scanning with push protection, then `push`, then the ruleset, so the first push
+      is already covered by push protection. Only `main` is ever pushed;
       never force-push, delete a repo or change other settings.
    6. If a command is refused or blocked (a permission prompt, a hook, `settings.json`, or an error): show that
       it was refused or blocked. For `create` or `push`, fall back to the checklist for that repo, and continue with
