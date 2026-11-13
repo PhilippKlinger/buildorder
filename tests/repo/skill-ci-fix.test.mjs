@@ -66,3 +66,9 @@ test('ci-fix counts a flake only for the same workflow, runs one command per cal
   assert.match(text, /never open `\.env`[^.]*secret files?/i);
   assert.match(text, /no GitHub remote.{0,160}one friendly sentence/i);
 });
+
+test('ci-fix reports a declined gh command as not checked and does not work around it', () => {
+  assert.match(text, /declines a `gh` command.{0,200}no second attempt in another form/i);
+  assert.match(text, /no `gh api`, no other shell, no `cd` chain/i);
+  assert.match(text, /"not checked \(declined\)".{0,200}names the declined command/i);
+});

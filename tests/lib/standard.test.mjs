@@ -305,3 +305,19 @@ test('standard --apply records the option modules in workspace.json', () => {
   const saved = JSON.parse(read(ws, '.claude/workspace.json'));
   assert.deepEqual(saved.repos[0].standards.modules, ['fake', 'docker-cicd', 'versioning']);
 });
+
+test('a missing stack item names the workflow pattern it looked for', () => {
+  const out = run(repo('standard gap stack'));
+  const lint = out.items.find((i) => i.id === 'lint');
+  assert.equal(lint.state, 'missing');
+  assert.equal(lint.reason, "no workflow matches 'fake-lint'");
+  const secret = out.items.find((i) => i.id === 'secret-scan');
+  assert.equal(secret.reason, "no workflow matches 'gitleaks'");
+});
+
+test('a missing file item names the files it looked for', () => {
+  const out = run(repo('standard gap files'));
+  const dependabot = out.items.find((i) => i.id === 'dependabot');
+  assert.equal(dependabot.state, 'missing');
+  assert.equal(dependabot.reason, 'none of .github/dependabot.yml, .github/dependabot.yaml exists');
+});
