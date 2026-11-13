@@ -58,21 +58,21 @@ disable it there with `/plugin` (project scope).
 
 ## Quickstart
 
-Run `/buildorder:init` in an empty folder (new project in one of the five stacks below) or in a folder that holds one existing git repo.
+Run `/buildorder:init` in an empty folder (new project in one of the five stacks below) or in a folder with one or more existing git repos.
 It does the following:
 
-1. Checks the folder and runs a short interview (at most 8 questions).
+1. Checks the folder and runs a short interview (at most 8 shared questions, plus at most 3 per code repo).
 2. Shows the plan and writes only after your confirmation.
 3. Creates the workspace (a private git repo for the docs) with its doc-map and the GitHub settings checklist.
 4. New project: writes the standard pipeline and a tested starter into the repo in one commit.
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
 5. Pushes nothing unless you consent per repo (see the GitHub step below).
 
-**Several repos:** a folder with several git repos becomes one workspace. `--visibility` and `--with` can be repeated: a value without `=` is the default for every repo, `<path>=<value>` applies to one repo (for example `--visibility private --visibility shop/web=public`). With two or more code repos the gap ids carry a tag from the folder name (`STD-API-01`, `STD-WEB-01`; the whole path if two folders share a name); with one code repo they stay `STD-01`.
+**Several repos:** a folder with several git repos becomes one workspace. `--visibility` and `--with` can be repeated: a value without `=` is the default for every code repo, `<path>=<value>` applies to one repo (a repo without code gets a value only this way) (for example `--visibility private --visibility shop/web=public`). With two or more code repos the gap ids carry a tag from the folder name (`STD-API-01`, `STD-WEB-01`; the whole path if two folders share a name); with one code repo they stay `STD-01`.
 
-**Skill overlap:** if `detect` finds personal or repo skills (`<repo>/.claude/skills`) that overlap with Buildorder's skills, init asks once how to handle each. It never changes them.
+**Skill overlap:** if `detect` finds personal or repo skills (`<repo>/.claude/skills`) that overlap with Buildorder's skills, init asks once how to handle each. It never changes repo skills, and removes a personal or workspace skill only after your explicit consent.
 
-**GitHub step:** after the workspace exists, init shows what it would create (`github-plan`, read-only) and asks once per repo: yes, no, or settings only. Only after a yes it creates the repo, pushes `main` and applies the settings; otherwise you get the checklist. The docs repo is created only if you ask, and always private.
+**GitHub step:** after the workspace exists, init shows what it would create (`github-plan`, read-only) and asks once per repo: yes, no, or settings only (for a repo that is already on GitHub). Only after a yes it creates the repo, pushes `main` and applies the settings; otherwise you get the checklist. The docs repo is created only if you ask, and always private.
 
 **Options:** the modules `versioning` and `web-quality` are options (class `option`). You choose them in the init confirmation; init passes the chosen options on to `plan`, `scaffold` and `standard`.
 

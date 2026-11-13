@@ -9,13 +9,13 @@ interfaces may change.
 
 ### Added
 
-- Multi-repo workspaces: `scaffold` takes `--visibility` and `--with` per repo (`<path>=<value>`), with a value without `=` as the default.
+- Multi-repo workspaces: `scaffold` takes `--visibility` and `--with` per repo (`<path>=<value>`), with a value without `=` as the default for every code repo.
 - Gap ids with a repo tag (`STD-API-01`) when a workspace has two or more code repos.
 - `github-plan`: read-only plan of the repos, names and settings init would apply.
 - `detect` lists repo skills (`skills.repos`) for the skill overlap choice in init.
 - `status` warns about repos that are not registered in `workspace.json` (`unregistered-repo`).
 - Init creates GitHub repos, pushes `main` and applies settings after one consent per repo; the docs repo is opt-in and private.
-- `github-checklist --done <path>=<step>` ticks steps that are already done.
+- `github-checklist --done <path>=<step>` ticks steps that are already done, one settings command at a time if needed (`settings:alerts`), and the docs repo as `.=create`.
 
 ### Changed
 
