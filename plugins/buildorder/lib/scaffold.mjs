@@ -59,6 +59,15 @@ export function renderTemplate(lang, file, vals) {
   return { text, record: { file: textHash(text), template: textHash(source) } };
 }
 
+/** The web-quality rule: one file, `paths` for every repo in `paths`. */
+function webQualityRule(paths) {
+  const source = readFileSync(join(TEMPLATES, 'rules', 'web-quality.md'), 'utf8').replace(/\r\n/g, '\n');
+  const m = /^---\npaths:\n([\s\S]*?)---\n/.exec(source);
+  const lines = m[1].split('\n').filter(Boolean);
+  const block = paths.flatMap((p) => lines.map((l) => fill(l, { repo: p }))).join('\n');
+  return `---\npaths:\n${block}\n---\n${source.slice(m[0].length)}`;
+}
+
 /** Why detect's suggestion rules out a workspace here, or null. */
 function refusal(d) {
   if (d.suggestion === 'repo-root') {
@@ -86,14 +95,50 @@ function recorded(root, repo, options) {
   return { modules: [...new Set([...plan.modules, ...options])], deviations: plan.deviations };
 }
 
-/** The repos to record: all that detect found, or those named in `--repo` (each must be one of them). */
-function pickRepos(root, found, wanted, visibility, modules = []) {
+/**
+ * Per-repo values of a repeatable option: a value without `=` is the default for every path in `paths`,
+ * `<path>=<value>` overrides it for that one repo. Returns Map<path, value> (paths without a value are
+ * absent). With `many`, the value of a path is the list of its values (default values first).
+ * Throws on an unknown path, a path given twice (unless `many`) and a value outside `allowed` (when given).
+ */
+export function perRepo(values, paths, allowed = null, { many = false, option = 'value' } = {}) {
+  const known = new Map(paths.map((p) => [normalizePath(p), p]));
+  const defaults = [];
+  const own = new Map();
+  for (const raw of values ?? []) {
+    const text = String(raw);
+    const eq = text.indexOf('=');
+    const value = (eq < 0 ? text : text.slice(eq + 1)).trim();
+    if (allowed && !allowed.includes(value)) throw new Error(`${option} must be one of ${allowed.join(', ')}`);
+    if (eq < 0) {
+      defaults.push(value);
+      continue;
+    }
+    const given = text.slice(0, eq).trim();
+    const path = known.get(normalizePath(given));
+    if (path === undefined) throw new Error(`unknown repo '${given}'`);
+    if (own.has(path) && !many) throw new Error(`'${given}' given twice`);
+    own.set(path, [...(own.get(path) ?? []), value]);
+  }
+  const result = new Map();
+  for (const path of paths) {
+    const list = many ? [...defaults, ...(own.get(path) ?? [])] : own.get(path) ?? (defaults.length ? [defaults.at(-1)] : []);
+    if (list.length) result.set(path, many ? list : list[0]);
+  }
+  return result;
+}
+
+/**
+ * The repos to record: all that detect found, or those named in `--repo` (each must be one of them).
+ * `visibility`: Map<path, value>; `modules`: Map<path, option module ids>.
+ */
+function pickRepos(root, found, wanted, visibility = new Map(), modules = new Map()) {
   const entry = (r) => ({
     path: r.path,
     isCode: r.isCode,
     stacks: r.stacks,
-    ...(visibility ? { visibility } : {}),
-    ...(modules.length ? { standards: recorded(root, r, modules) } : {}),
+    ...(visibility.has(r.path) ? { visibility: visibility.get(r.path) } : {}),
+    ...(modules.get(r.path)?.length ? { standards: recorded(root, r, modules.get(r.path)) } : {}),
   });
   if (!wanted?.length) return found.map(entry);
   const byKey = new Map(found.map((r) => [normalizePath(r.path), r]));
@@ -176,13 +221,16 @@ function ignoreRepos(root, paths, put, skipped) {
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
 export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: withIds } = {}) {
-  const modules = optionModules(loadModel(), withIds, null);
+  const model = loadModel();
+  optionModules(model, (withIds ?? []).map((v) => String(v).slice(String(v).indexOf('=') + 1)), null);
   if (lang !== undefined && !LANGUAGES.includes(lang)) throw new Error(`--lang must be one of ${LANGUAGES.join(', ')}`);
   if (newRepo !== undefined && !validName(newRepo)) {
     throw new Error(`invalid --new-repo '${newRepo}': one folder name of letters, digits, space and ._-`);
   }
-  if (visibility !== undefined && !VISIBILITIES.includes(visibility)) {
-    throw new Error(`--visibility must be one of ${VISIBILITIES.join(', ')}`);
+  const visValues = visibility === undefined ? [] : [].concat(visibility);
+  for (const v of visValues) {
+    const value = v.slice(v.indexOf('=') + 1).trim();
+    if (!VISIBILITIES.includes(value)) throw new Error(`--visibility must be one of ${VISIBILITIES.join(', ')}`);
   }
   if (name !== undefined && !validName(name)) {
     throw new Error(`invalid name '${name}': letters, digits, space and ._-, at most 63 characters`);
@@ -191,6 +239,12 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const root = d.dir;
   const why = refusal(d);
   if (why) throw new Error(why);
+  // Per-repo values are checked against the repos to record, before anything is written.
+  const chosen = (repo?.length ? repo.map((w) => relativeTo(resolve(root, w), root)).filter((p) => p !== null) : d.repos.map((r) => r.path))
+    .concat(newRepo === undefined ? [] : [newRepo]);
+  const visByRepo = perRepo(visValues, chosen, VISIBILITIES, { option: '--visibility' });
+  const withByRepo = perRepo(withIds, chosen, null, { many: true });
+  for (const list of withByRepo.values()) optionModules(model, list, null);
   if (newRepo !== undefined) {
     initRepo(root, newRepo);
     d = detect(root);
@@ -200,7 +254,7 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const keptName = typeof existing?.name === 'string' && validName(existing.name) ? existing.name : null;
   const wsName = name ?? keptName ?? safeName(basename(root));
   const wanted = newRepo === undefined ? repo : [...(repo ?? []), newRepo];
-  const repos = pickRepos(root, d.repos, wanted, visibility, modules);
+  const repos = pickRepos(root, d.repos, wanted, visByRepo, new Map([...withByRepo].map(([p, ids]) => [p, optionModules(model, ids, null)])));
   const rootRepo = initRoot(root);
 
   const created = [];
@@ -237,10 +291,8 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const resumed = skipped.includes(WORKSPACE_JSON);
 
   for (const { file, text } of rendered) put(file, text);
-  if (modules.includes('web-quality')) {
-    const target = repos.find((r) => r.isCode) ?? repos[0];
-    if (target) put(WEB_QUALITY_RULE, fill(readFileSync(join(TEMPLATES, 'rules', 'web-quality.md'), 'utf8'), { repo: target.path }));
-  }
+  const webRepos = repos.filter((r) => r.standards?.modules.includes('web-quality'));
+  if (webRepos.length) put(WEB_QUALITY_RULE, webQualityRule(webRepos.map((r) => r.path)));
   // A resume keeps its workspace.json and only adds the records of the files it created now.
   if (resumed && Object.keys(records).length) {
     const file = join(root, ...WORKSPACE_JSON.split('/'));
