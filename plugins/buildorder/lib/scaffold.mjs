@@ -7,7 +7,7 @@ import { BUILDORDER_VERSION, PLUGIN_ROOT, detect, safeName, validName } from './
 import { readJson, writeJson } from './fsx.mjs';
 import { gitResult } from './git.mjs';
 import { normalizePath, relativeTo } from './paths.mjs';
-import { VISIBILITIES, loadModel, optionModules, standard } from './standard.mjs';
+import { VISIBILITIES, deselections, loadModel, optionModules, standard } from './standard.mjs';
 import { loadWorkspace } from './workspace.mjs';
 
 /** The doc-map: `docs` key in workspace.json -> file in the workspace root. */
@@ -81,15 +81,16 @@ function refusal(d) {
 }
 
 /**
- * The standards to record for a repo with option modules: the modules of its read-only plan (stack module,
- * docker-cicd when an image is planned), then the options, without duplicates; the plan's deviations.
- * No repo file is written. A repo that cannot be planned (no code, no git) records the options only.
+ * The standards to record for a repo with option modules or deselected items: the modules of its read-only plan
+ * (stack module, docker-cicd when an image is planned), then the options, without duplicates; the plan's deviations.
+ * `without` (['<id>=<reason>']) is planned like `plan --without`. No repo file is written. A repo that cannot be
+ * planned (no code, no git) records the options only.
  */
-function recorded(root, repo, options) {
+function recorded(root, repo, options, without = []) {
   let plan = { modules: [], deviations: [] };
-  if (repo.isCode) {
+  if (repo.isCode || without.length) {
     try {
-      plan = standard(resolve(root, repo.path));
+      plan = standard(resolve(root, repo.path), { without });
     } catch { /* not plannable: options only */ }
   }
   return { modules: [...new Set([...plan.modules, ...options])], deviations: plan.deviations };
@@ -140,14 +141,50 @@ function foundRepo(root, found, wanted) {
 }
 
 /**
- * The repos to record: all that detect found, or those named in `--repo` (each must be one of them).
- * `visibility`: Map<path, value>; `modules`: Map<path, option module ids>. Paths are compared in normalized
- * form (lower case on Windows), and each entry keeps detect's path as it is on disk.
+ * `--without` values as Map<path, ['<id>=<reason>']> for `paths`: `<id>=<reason>` applies to every path
+ * `defaults` accepts, `<path>:<id>=<reason>` to that one code repo. The id and the reason are checked like
+ * `standard --without` does; the path must be one of `paths` and take a standard (a code repo). Throws on any of
+ * them, so the caller can run it before it writes anything. The reason may hold `:` and `=`.
  */
-function pickRepos(root, found, wanted, visibility = new Map(), modules = new Map()) {
+function withoutPerRepo(values, paths, model, { defaults: takesDefault = () => true, codes = takesDefault } = {}) {
+  const known = new Map(paths.map((p) => [normalizePath(p), p]));
+  const defaults = [];
+  const own = new Map();
+  for (const raw of values ?? []) {
+    const text = String(raw);
+    const eq = text.indexOf('=');
+    const left = eq < 0 ? text : text.slice(0, eq);
+    const colon = left.lastIndexOf(':');
+    const given = colon < 0 ? null : left.slice(0, colon).trim();
+    const entry = (colon < 0 ? left : left.slice(colon + 1)).trim() + (eq < 0 ? '' : text.slice(eq));
+    deselections(model, [entry]);
+    if (given === null) {
+      defaults.push(entry);
+      continue;
+    }
+    const path = known.get(normalizePath(given));
+    if (path === undefined) throw new Error(`unknown repo '${given}'`);
+    if (!codes(path)) throw new Error(`'${given}' is not a code repo: --without needs one`);
+    own.set(path, [...(own.get(path) ?? []), entry]);
+  }
+  const result = new Map();
+  for (const path of paths) {
+    const list = [...(takesDefault(path) ? defaults : []), ...(own.get(path) ?? [])];
+    if (list.length) result.set(path, list);
+  }
+  return result;
+}
+
+/**
+ * The repos to record: all that detect found, or those named in `--repo` (each must be one of them).
+ * `visibility`: Map<path, value>; `modules`: Map<path, option module ids>; `without`: Map<path, ['<id>=<reason>']>.
+ * Paths are compared in normalized form (lower case on Windows), and each entry keeps detect's path as it is on disk.
+ */
+function pickRepos(root, found, wanted, visibility = new Map(), modules = new Map(), without = new Map()) {
   const byPath = (m) => new Map([...m].map(([k, v]) => [normalizePath(k), v]));
   const vis = byPath(visibility);
   const mods = byPath(modules);
+  const wo = byPath(without);
   const entry = (r) => {
     const key = normalizePath(r.path);
     return {
@@ -155,7 +192,7 @@ function pickRepos(root, found, wanted, visibility = new Map(), modules = new Ma
       isCode: r.isCode,
       stacks: r.stacks,
       ...(vis.has(key) ? { visibility: vis.get(key) } : {}),
-      ...(mods.get(key)?.length ? { standards: recorded(root, r, mods.get(key)) } : {}),
+      ...(mods.get(key)?.length || wo.get(key)?.length ? { standards: recorded(root, r, mods.get(key) ?? [], wo.get(key) ?? []) } : {}),
     };
   };
   if (!wanted?.length) return found.map(entry);
@@ -230,13 +267,15 @@ function ignoreRepos(root, paths, put, skipped) {
  * without a path is recorded on each code repo entry; /buildorder:secure reads it), `newRepo` (a folder name:
  * create the new project's code repo there with `git init` on main and record it), `with` (option module ids, or
  * `<path>=<id>`: each code repo gets the plan modules of the repo plus these as `standards`, a repo without code
- * only through its own `<path>=`; validated before anything is written). Without `lang` and `name`, a rerun keeps
+ * only through its own `<path>=`; validated before anything is written), `without` (`<id>=<reason>` for every code
+ * repo, or `<path>:<id>=<reason>` for one; checked like `standard --without`, recorded as `standards.deviations`
+ * of the repo entry, and a skipped container-image leaves docker-cicd out of its modules). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * The root becomes a git repo without a commit (`rootRepo`: created | existing), and its .gitignore lists
  * every repo folder plus Claude Code's local settings (`ignored`: the lines added).
  * Throws before writing anything when an option is invalid or the folder is no place for a workspace.
  */
-export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: withIds } = {}) {
+export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: withIds, without } = {}) {
   const model = loadModel();
   optionModules(model, (withIds ?? []).map((v) => String(v).slice(String(v).indexOf('=') + 1)), null);
   if (lang !== undefined && !LANGUAGES.includes(lang)) throw new Error(`--lang must be one of ${LANGUAGES.join(', ')}`);
@@ -267,6 +306,7 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const visByRepo = perRepo(visValues, chosen, VISIBILITIES, { option: '--visibility', defaults: takesDefault });
   const withByRepo = perRepo(withIds, chosen, null, { many: true, defaults: takesDefault });
   for (const list of withByRepo.values()) optionModules(model, list, null);
+  const withoutByRepo = withoutPerRepo(without, chosen, model, { defaults: takesDefault });
   if (newRepo !== undefined) {
     initRepo(root, newRepo);
     d = detect(root);
@@ -276,7 +316,7 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const keptName = typeof existing?.name === 'string' && validName(existing.name) ? existing.name : null;
   const wsName = name ?? keptName ?? safeName(basename(root));
   const wanted = newRepo === undefined ? repo : [...(repo ?? []), newRepo];
-  const repos = pickRepos(root, d.repos, wanted, visByRepo, new Map([...withByRepo].map(([p, ids]) => [p, optionModules(model, ids, null)])));
+  const repos = pickRepos(root, d.repos, wanted, visByRepo, new Map([...withByRepo].map(([p, ids]) => [p, optionModules(model, ids, null)])), withoutByRepo);
   const rootRepo = initRoot(root);
 
   const created = [];

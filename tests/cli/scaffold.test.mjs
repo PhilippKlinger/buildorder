@@ -451,3 +451,54 @@ test('scaffold refuses two visibility defaults before writing anything', () => {
   // For --with plain ids are a list: several stay allowed.
   assert.equal(cli('scaffold', root, '--with', 'versioning', '--with', 'web-quality').status, 0);
 });
+
+// --- 1.3.1 (practice test S6-1): --without records deviations per repo ---
+
+const devOf = (root, path) => wsOf(root).repos.find((r) => r.path === path).standards?.deviations;
+
+test('scaffold --without records a deviation on every code repo', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--without', 'deploy=no server yet');
+  const reason = 'no server yet';
+  assert.deepEqual(devOf(root, 'shop/api'), [{ id: 'deploy', class: 'standard', reason }]);
+  assert.deepEqual(devOf(root, 'shop/web'), [{ id: 'deploy', class: 'standard', reason }]);
+  assert.equal(devOf(root, 'notes'), undefined, 'a repo without code gets none');
+});
+
+test('scaffold --without <path>:<id>=<reason> records it on one repo only', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--without', 'shop/web:container-image=static site: a: b=c', '--without', 'deploy=none yet');
+  assert.deepEqual(devOf(root, 'shop/web').map((d) => [d.id, d.reason]), [['container-image', 'static site: a: b=c'], ['deploy', 'none yet']]);
+  assert.deepEqual(devOf(root, 'shop/api').map((d) => d.id), ['deploy']);
+});
+
+test('scaffold --without container-image drops docker-cicd from the recorded modules', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--without', 'shop/api:container-image=no docker');
+  const modules = (p) => wsOf(root).repos.find((r) => r.path === p).standards?.modules ?? [];
+  assert.ok(!modules('shop/api').includes('docker-cicd'));
+  assert.ok(modules('shop/api').includes('django'));
+  const plain = multiRepoWorkspace();
+  scaffold(plain.root, '--with', 'versioning');
+  assert.ok(wsOf(plain.root).repos.find((r) => r.path === 'shop/api').standards.modules.includes('docker-cicd'));
+});
+
+test('scaffold refuses an unknown --without id or path before writing anything', () => {
+  const { root } = multiRepoWorkspace();
+  const before = tree(root);
+  const cases = [
+    [['--without', 'nonsense=x'], /unknown standard item 'nonsense'/],
+    [['--without', 'lint=x'], /'lint' is mandatory/],
+    [['--without', 'deploy='], /needs a reason/],
+    [['--without', 'deploy'], /needs a reason/],
+    [['--without', 'shop/api:deploy= '], /needs a reason/],
+    [['--without', 'nope/x:deploy=y'], /unknown repo 'nope\/x'/],
+    [['--without', 'notes:deploy=y'], /'notes' is not a code repo/],
+  ];
+  for (const [args, re] of cases) {
+    const r = cli('scaffold', root, ...args);
+    assert.equal(r.status, 1, args.join(' '));
+    assert.match(r.stderr, re);
+    assert.deepEqual(tree(root), before);
+  }
+});
