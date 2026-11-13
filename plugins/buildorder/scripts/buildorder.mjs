@@ -9,7 +9,8 @@
 //                                [--new-repo <name>]   (git init -b main of the new project's repo)
 //   node buildorder.mjs verify [dir]
 //   node buildorder.mjs finalize [dir]
-//   node buildorder.mjs github-checklist [dir] [--repo owner/name]   (writes docs/github-settings.md and the ruleset; no API call)
+//   node buildorder.mjs github-checklist [dir] [--repo owner/name] [--done <path>=<create|push|settings>]...   (writes docs/github-settings.md and the ruleset; no API call)
+//   node buildorder.mjs github-plan [dir] --owner <login> [--name <path>=<name>]... [--docs]   (read-only: the create, push and settings commands per repo)
 //   node buildorder.mjs standard [repo] [--stack <id>] [--deploy container|webspace|paas|none]
 //                                [--visibility public|private] [--without <id>=<reason>]... [--with <module>]... [--starter] [--apply]
 //                                [--gaps]   (the plan's missing items as backlog markdown instead of JSON)
@@ -24,7 +25,7 @@
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { detect } from '../lib/detect.mjs';
-import { githubChecklist } from '../lib/github.mjs';
+import { githubChecklist, githubPlan } from '../lib/github.mjs';
 import { nest } from '../lib/nest.mjs';
 import { radarDone, radarState } from '../lib/radar.mjs';
 import { scaffold } from '../lib/scaffold.mjs';
@@ -58,7 +59,17 @@ const COMMANDS = {
   },
   verify: { args: 0, check: true, run: (dir) => verify(dir) },
   finalize: { args: 0, check: true, run: (dir) => finalize(dir) },
-  'github-checklist': { args: 0, options: { repo: { type: 'string' } }, run: (dir, _args, opts) => githubChecklist(dir, opts) },
+  'github-checklist': {
+    args: 0,
+    options: { repo: { type: 'string' }, done: { type: 'string', multiple: true } },
+    run: (dir, _args, opts) => githubChecklist(dir, opts),
+  },
+  // Read-only: no gh, no network, no file written, so skills can pre-approve it.
+  'github-plan': {
+    args: 0,
+    options: { owner: { type: 'string' }, name: { type: 'string', multiple: true }, docs: { type: 'boolean' } },
+    run: (dir, _args, opts) => githubPlan(dir, opts),
+  },
   standard: {
     args: 0,
     options: {
