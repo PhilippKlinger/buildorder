@@ -31,7 +31,7 @@ test('empty folder suggests new', () => {
   assert.deepEqual(d.repos, []);
   assert.equal(d.workspaceProposal, null);
   assert.equal(d.suggestion, 'new');
-  assert.deepEqual(d.skills, { personal: [], project: [] });
+  assert.deepEqual(d.skills, { personal: [], project: [], repos: [] });
 });
 
 test('folder of repos suggests multi-repo', () => {
@@ -392,4 +392,27 @@ test('unknown command and missing folder fail with a short message', () => {
   assert.equal(extra.status, 1);
   assert.equal(extra.stderr, "buildorder: unexpected argument 'b'\n");
   assert.equal(extra.stdout, '');
+});
+
+test('detect lists the skills inside each repo', () => {
+  const root = tmp('repo skills');
+  const web = codeRepo(null, null, { dir: join(root, 'shop', 'web') });
+  codeRepo(null, null, { dir: join(root, 'shop', 'api') });
+  write(web, { '.claude/skills/kickoff/SKILL.md': '---\nname: kickoff\ndescription: Starts the day\n---\n' });
+  const d = detect(root, { home: fakeHome() });
+  assert.deepEqual(d.skills.repos, [
+    { path: 'shop/web', skills: [{ name: 'kickoff', description: 'Starts the day', path: join(web, '.claude', 'skills', 'kickoff', 'SKILL.md') }] },
+  ]);
+});
+
+test('detect shortens long skill descriptions', () => {
+  const home = fakeHome();
+  const long = 'x'.repeat(500);
+  write(home, { '.claude/skills/wordy/SKILL.md': `---\nname: wordy\ndescription: ${long}\n---\n` });
+  const root = tmp('long desc');
+  const repo = codeRepo(null, null, { dir: join(root, 'app') });
+  write(repo, { '.claude/skills/wordy/SKILL.md': `---\nname: wordy\ndescription: ${long}\n---\n` });
+  const d = detect(root, { home });
+  assert.equal(d.skills.personal[0].description.length, 200);
+  assert.equal(d.skills.repos[0].skills[0].description.length, 200);
 });

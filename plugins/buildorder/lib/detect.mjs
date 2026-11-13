@@ -299,6 +299,13 @@ export function frontmatter(text) {
   return out;
 }
 
+const DESCRIPTION_MAX = 200; // skill texts are untrusted data that reach Claude's context
+
+/** Code repos below `root` (`/`-separated relative paths), as `detect` finds them. */
+export function findCodeRepos(root) {
+  return findRepos(root).filter((path) => ownCode(join(root, ...path.split('/'))).isCodeRepo);
+}
+
 /** `SKILL.md` frontmatter of each `<base>/.claude/skills/*`, sorted by folder; malformed ones are skipped. */
 function skillsIn(base) {
   const skillsDir = join(base, '.claude', 'skills');
@@ -318,7 +325,7 @@ function skillsIn(base) {
       continue;
     }
     if (!fm?.name) continue;
-    out.push({ name: fm.name, description: fm.description ?? '', path });
+    out.push({ name: fm.name, description: (fm.description ?? '').slice(0, DESCRIPTION_MAX), path });
   }
   return out;
 }
@@ -374,6 +381,12 @@ export function detect(dir, { home = homedir() } = {}) {
     repos: nested.map((r) => repoInfo(r.abs, r.path, r.code)),
     workspaceProposal: suggestion === 'repo-root' ? proposal(root, entries) : null,
     suggestion,
-    skills: { personal: skillsIn(home), project: skillsIn(root) },
+    skills: {
+      personal: skillsIn(home),
+      project: skillsIn(root),
+      repos: nested
+        .map((r) => ({ path: r.path, skills: skillsIn(r.abs) }))
+        .filter((r) => r.skills.length),
+    },
   };
 }

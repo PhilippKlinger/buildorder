@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, realpathSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { cleanup, cli, codeRepo, commitAll, gitIn, gitInit, tempDir, tmp, write } from '../helpers/cli.mjs';
+import { multiRepoWorkspace } from '../helpers/workspace.mjs';
 
 after(cleanup);
 
@@ -166,4 +167,18 @@ test('plain text by default: one line per place', () => {
     '- dirty app: main, 1 changed, no upstream',
     '- gone: folder missing',
   ]);
+});
+
+test('status warns about a code repo that is not in workspace.json', () => {
+  const root = multiRepoWorkspace({ registered: true });
+  codeRepo(null, null, { dir: join(root.root, 'extra', 'tool') });
+  const out = status(root.root);
+  assert.deepEqual(out.warnings, [{ kind: 'unregistered-repo', path: 'extra/tool' }]);
+  const r = cli('status', root.root);
+  assert.match(r.stdout, /extra\/tool is a code repo that is not set up in this workspace/);
+});
+
+test('status has no such warning when every repo is registered', () => {
+  const root = multiRepoWorkspace({ registered: true });
+  assert.deepEqual(status(root.root).warnings, []);
 });
