@@ -94,6 +94,10 @@ session from these docs.
 | `/buildorder:assess` | Static assessment of one repo, findings ranked P0 to P3 |
 | `/buildorder:review` | Code review with the project's own criteria (reports only) |
 | `/buildorder:secure` | Security and data protection audit (reports only) |
+| `/buildorder:scout` | Sharpens a plan before building: names blind spots, asks one question at a time, writes a brief or spec with acceptance criteria |
+| `/buildorder:deploy-gate` | Go/no-go check before a deploy (clean pushed state, CI of HEAD, production compose file, variables); needs the `docker-cicd` module; reports only, never deploys |
+| `/buildorder:deps` | Triage of open Dependabot pull requests: release notes, CI state, merge order; reports only, merges nothing |
+| `/buildorder:ci-fix` | Diagnoses failed GitHub Actions runs: names job, step and log line, proposes a fix branch; applies nothing |
 | `/buildorder:sync` | Lists what the installed templates would add or update in `CLAUDE.md` and the doc-map; writes after your OK and never overwrites a file you changed |
 | `/buildorder:radar` | Reads the official Claude Code sources for news since the last run and proposes at most three changes; changes no files except the run date in `.claude/workspace.json` |
 

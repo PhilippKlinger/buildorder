@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [1.1.0] - 2026-11-13
+
+### Added
+
+- `/buildorder:scout`: sharpens a plan before building and writes a short brief or a spec with acceptance criteria.
+- `/buildorder:deploy-gate` (needs the `docker-cicd` module): go/no-go check before a deploy; reports only and never deploys.
+- `/buildorder:deps`: triage of open Dependabot pull requests with a proposed merge order; merges nothing.
+- `/buildorder:ci-fix`: diagnoses failed GitHub Actions runs and proposes a fix branch; applies nothing.
+
 ## [1.0.0] - 2026-11-12
 
 ### Added
@@ -104,6 +113,7 @@ First pre-release.
   handoff reminder on stop.
 - Skills: `/buildorder:init`, `kickoff`, `handoff`, `assess`, `review` and `secure`.
 
+[1.1.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v1.1.0
 [1.0.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v1.0.0
 [0.2.0]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.2.0
 [0.1.1]: https://github.com/PhilippKlinger/buildorder/releases/tag/v0.1.1
