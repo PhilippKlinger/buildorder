@@ -320,13 +320,19 @@ function allPinned(text) {
   return text.trim() !== '' && refs.every((u) => /@[0-9a-f]{40}$/.test(u));
 }
 
-function passes(root, check, workflows) {
-  if (!check) return false;
-  if (check.files && !check.files.some((f) => existsSync(join(root, ...f.split('/'))))) return false;
-  if (check.workflow && !check.workflow.every((p) => new RegExp(p).test(workflows))) return false;
-  if (check.pins && !allPinned(workflows)) return false;
-  return true;
+/** Why a check fails (what it looked for), or null when it passes. A missing check has no reason. */
+function failure(root, check, workflows) {
+  if (!check) return null;
+  if (check.files && !check.files.some((f) => existsSync(join(root, ...f.split('/'))))) {
+    return `none of ${check.files.join(', ')} exists`;
+  }
+  const pattern = check.workflow?.find((p) => !new RegExp(p).test(workflows));
+  if (pattern) return `no workflow matches '${pattern}'`;
+  if (check.pins && !allPinned(workflows)) return 'a workflow action is not pinned to a full commit SHA';
+  return null;
 }
+
+const passes = (root, check, workflows) => Boolean(check) && failure(root, check, workflows) === null;
 
 /** How an item is checked: the model's check, the stack module's pattern, or the CD workflow file. */
 function checkFor(item, sel) {
@@ -357,7 +363,7 @@ function itemsOf(root, model, sel) {
     const base = { id: item.id, class: item.class, provider: item.provider };
     if (sel.skips.has(item.id)) return { ...base, state: 'skipped', reason: sel.skips.get(item.id) };
     if (passes(root, checkFor(item, sel), workflows)) return { ...base, state: 'present' };
-    const reason = missingReason(item, sel);
+    const reason = missingReason(item, sel) ?? failure(root, checkFor(item, sel), workflows);
     return reason ? { ...base, state: 'missing', reason } : { ...base, state: 'missing' };
   });
 }
