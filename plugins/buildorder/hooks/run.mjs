@@ -11,7 +11,7 @@ import { findWorkspaceRoot, loadWorkspace } from '../lib/workspace.mjs';
 const IS_WINDOWS = process.platform === 'win32';
 
 // Hooks a workspace may switch off in `hooks.disabled`. Guards are not in this list.
-const OPTIONAL = new Set(['context-inject', 'effort-hint', 'compact-guard', 'handoff-reminder']);
+const OPTIONAL = new Set(['context-inject', 'effort-hint', 'compact-guard', 'handoff-reminder', 'version-drift']);
 
 /** The session folder: `input.cwd`, or the process folder (Claude Code starts hooks there) when missing. */
 function cwdOf(input) {
@@ -260,7 +260,7 @@ function gitStart(input) {
 const ENTRIES = new Map([
   ['boundary', { event: 'PreToolUse', hooks: ['boundary-guard'], start: fileStart, guard: true }],
   ['secret', { event: 'PreToolUse', hooks: ['secret-guard'], start: gitStart, guard: true }],
-  ['prompt', { event: 'UserPromptSubmit', hooks: ['context-inject', 'effort-hint'], start: sessionStart }],
+  ['prompt', { event: 'UserPromptSubmit', hooks: ['context-inject', 'effort-hint', 'version-drift'], start: sessionStart }],
   ['compact', { event: 'SessionStart', hooks: ['compact-guard'], start: sessionStart }],
   ['stop', { event: 'Stop', hooks: ['handoff-reminder'], start: sessionStart }],
 ]);
