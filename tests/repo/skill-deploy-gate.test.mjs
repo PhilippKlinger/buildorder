@@ -96,3 +96,23 @@ test('deploy-gate runs one command per call, no cd chains', () => {
   assert.match(text, /one command per call/i);
   assert.match(text, /no `cd \.\.\. &&` chains/i);
 });
+
+test('deploy-gate: optional names are notes, required names decide, REQUIRED_ENV is optional', () => {
+  assert.doesNotMatch(raw, /\| # \| Check \| How \|\r?\n\|---\|---\|---\|\r?\nThe deploy target/);
+  assert.match(text, /`REQUIRED_ENV` is optional/i);
+  assert.match(text, /only names the repo declares as required count/i);
+  for (const n of ['READINESS_URLS', 'REQUIRED_ENV', 'WEBSPACE_PROTOCOL', 'WEBSPACE_DELETE', 'WEBSPACE_KEEP', 'SITE_URL']) {
+    assert.match(text, new RegExp('optional names?[^.]*`' + n + '`', 'i'), n);
+  }
+  assert.match(text, /`WEBSPACE_PASSWORD` is required only for ftps/i);
+  assert.match(text, /missing optional name is a note, not NO-GO/i);
+  assert.match(text, /name the deploy step needs unconditionally.{0,120}NO-GO/i);
+});
+
+test('deploy-gate checks the waiting deploy job through the run jobs', () => {
+  assert.match(text, /gh run view <id> --repo <owner\/name> --json jobs/);
+});
+
+test('deploy-gate: docker-cicd without a deploy workflow is NO-GO', () => {
+  assert.match(text, /neither `deployment\.yml` nor `deployment-webspace\.yml`.{0,120}NO-GO.{0,60}the module's deploy workflow is missing/i);
+});
