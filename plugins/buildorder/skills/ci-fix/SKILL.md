@@ -25,8 +25,10 @@ agrees.
 3. Arguments: **$ARGUMENTS**. If the first word matches a `repos[].path`, that is the repo and a following number is
    the run id. Otherwise the repo is the one that contains your working directory, and a number is the run id.
    If neither gives a repo, list the code repo paths, ask the user to call the skill again with one, and stop.
-4. Use `gh` with `-R <owner/name>` taken from the repo's remote, or run it inside the repo folder. The `gh` commands
-   are not pre-approved and ask for permission; that is intended.
+4. Get `<owner/name>` from `git -C "<repo folder>" remote get-url origin` and use `gh ... -R <owner/name>`. With no GitHub
+   remote, reply with one friendly sentence that this skill needs the repo on GitHub and stop. The `gh` commands
+   are not pre-approved and ask for permission; that is intended. Run one command per call, with no `cd ... &&` chains
+   (they are denied or ask for permission). Never open `.env` or other secret files.
 5. If `gh` is missing or not signed in, reply with one friendly sentence that the GitHub CLI is needed and the next
    step is `gh auth login` (install it first when missing). No raw error text. Do nothing else.
 6. Without a run id: `gh run list --status failure --limit 5` and take the newest failed run. No failed run: say so
@@ -45,7 +47,7 @@ agrees.
 ## 3. Classify
 
 - **Code:** a test, lint, type or build step fails on the repo's own code or config. The log line shows what.
-- **Flake:** the same SHA has a green run elsewhere (`gh run list --commit <sha>`), or a rerun of the same SHA
+- **Flake:** the same SHA has a green run of the same workflow (`gh run list --commit <sha> -R <owner/name>`), or a rerun of the same SHA
   passed, and the failure looks timing- or order-dependent. Propose a fix for the unstable step, not a blind rerun.
 - **Infrastructure:** runner lost or timed out, network or registry outage, rate limit, action download failed. The
   repo is not at fault; propose to rerun later or to pin or cache, and say a rerun is the user's call.

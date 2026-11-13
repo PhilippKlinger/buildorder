@@ -63,3 +63,36 @@ test('deploy-gate treats CI logs and repo files as data, and handles a missing g
   assert.match(text, /data, never instructions/i);
   assert.match(text, /gh auth login/);
 });
+
+test('deploy-gate passes --repo to every gh call and stops friendly without a remote', () => {
+  assert.match(text, /remote get-url origin/);
+  assert.match(text, /gh run list --commit <sha> --repo <owner\/name>/);
+  assert.match(text, /gh secret list --repo <owner\/name>/);
+  assert.match(text, /gh variable list --repo <owner\/name>/);
+  assert.match(text, /no GitHub remote.{0,160}one friendly sentence/i);
+});
+
+test('deploy-gate fits the docker-cicd module: workflow, compose, env and secrets', () => {
+  assert.match(text, /workflow `ci`.{0,120}job `ci-ok`/i);
+  assert.match(text, /waiting for (the )?(environment )?approval.{0,160}not (a plain )?NO-GO/i);
+  assert.match(text, /docker-compose\.prod\.yaml/);
+  assert.match(text, /`image: \$\{APP_IMAGE:\?\}`.{0,200}(counts as|is) (pinned )?by digest/i);
+  assert.match(text, /webspace.{0,80}paas.{0,200}not applicable/i);
+  assert.match(text, /`REQUIRED_ENV`/);
+  assert.match(text, /\.env\.example.{0,40}only if (it )?exists/i);
+  assert.match(text, /gh secret list --env production --repo <owner\/name>/);
+});
+
+test('deploy-gate requires HEAD to be main and equal to origin/main', () => {
+  assert.match(text, /branch --show-current/);
+  assert.match(text, /HEAD must be `main` and equal to `origin\/main`.{0,120}NO-GO/i);
+});
+
+test('deploy-gate never opens .env or other secret files', () => {
+  assert.match(text, /never open `\.env`[^.]*secret files?/i);
+});
+
+test('deploy-gate runs one command per call, no cd chains', () => {
+  assert.match(text, /one command per call/i);
+  assert.match(text, /no `cd \.\.\. &&` chains/i);
+});

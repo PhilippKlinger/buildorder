@@ -58,3 +58,11 @@ test('ci-fix explains a missing or signed-out gh in one friendly sentence', () =
   assert.match(text, /`gh` is missing or not signed in[^.]*one friendly sentence[^.]*`gh auth login`/);
   assert.match(text, /no raw error text/i);
 });
+
+test('ci-fix counts a flake only for the same workflow, runs one command per call, reads no secret files', () => {
+  assert.match(text, /same SHA has a green run of the same workflow/i);
+  assert.match(text, /one command per call/i);
+  assert.match(text, /no `cd \.\.\. &&` chains/i);
+  assert.match(text, /never open `\.env`[^.]*secret files?/i);
+  assert.match(text, /no GitHub remote.{0,160}one friendly sentence/i);
+});

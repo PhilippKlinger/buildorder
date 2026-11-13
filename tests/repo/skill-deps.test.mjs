@@ -64,3 +64,11 @@ test('deps never merges or closes a pull request itself', () => {
   assert.match(text, /only after the user agrees in the main conversation/i);
   assert.doesNotMatch(raw, /allowed-tools:.*\b(gh|git)\b/);
 });
+
+test('deps uses the stacks field, runs one command per call and reads no secret files', () => {
+  assert.match(text, /`repos\[\]\.stacks`/);
+  assert.doesNotMatch(text, /`repos\[\]\.stack`/);
+  assert.match(text, /one command per call/i);
+  assert.match(text, /no `cd \.\.\. &&` chains/i);
+  assert.match(text, /never open `\.env`[^.]*secret files?/i);
+});

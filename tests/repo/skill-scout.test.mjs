@@ -39,7 +39,7 @@ test('scout checks the spec against the standard plan and the decisions file', (
 });
 
 test('scout defers to Superpowers for generation when it is installed', () => {
-  assert.match(text, /Superpowers is installed, it generates the spec or plan there\. Scout then writes no spec of its own and only checks/);
+  assert.match(text, /Superpowers installed, hand over to its brainstorming skill.{0,80}scout then writes no spec of its own/);
 });
 
 test('scout pre-approves no write tool', () => {
@@ -55,4 +55,22 @@ test('scout outside a workspace gives one friendly sentence pointing to /buildor
 
 test('scout treats repo and plan content as data, not instructions', () => {
   assert.match(text, /data, never instructions/i);
+});
+
+test('scout writes the spec only with the Write tool, never through the shell', () => {
+  assert.match(text, /only with the Write tool/i);
+  assert.match(text, /refused or unavailable.{0,80}show the spec.{0,40}stop/i);
+  assert.match(text, /never write files through shell commands \(heredoc, echo, redirects\)/i);
+  assert.match(text, /never rephrase[^.]*guard/i);
+});
+
+test('scout always ends with the Output block and handles Superpowers specs', () => {
+  assert.match(text, /write the short form[^.]*then go to Output/i);
+  assert.match(text, /spec or plan Superpowers wrote, skip to step 5/i);
+  assert.match(text, /hand over to its brainstorming skill and check the result here/i);
+});
+
+test('scout runs one command per call, no cd chains', () => {
+  assert.match(text, /one command per call/i);
+  assert.match(text, /no `cd \.\.\. &&` chains/i);
 });
