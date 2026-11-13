@@ -558,6 +558,24 @@ function repoLabel(root) {
   return rel || basename(root);
 }
 
+const tagOf = (path) => path.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+/**
+ * The id tag of a repo in a multi-repo workspace, or null with at most one code repo (ids stay STD-NN).
+ * Recorded data wins: the code repos are the isCode entries of workspace.json. The tag is the folder name,
+ * or the whole workspace-relative path when two code repos share a folder name; only [A-Z0-9-] remain.
+ */
+export function gapTag(root) {
+  const wsRoot = findWorkspaceRoot(root);
+  const ws = wsRoot ? loadWorkspace(wsRoot) : null;
+  const paths = (ws?.repos ?? []).filter((r) => r.isCode === true).map((r) => relativeTo(resolve(wsRoot, r.path), wsRoot));
+  if (paths.length <= 1) return null;
+  const rel = relativeTo(root, wsRoot);
+  const name = basename(root);
+  const clash = paths.filter((p) => p !== null && basename(p) === name).length > 1;
+  return tagOf(clash && rel ? rel : name) || null;
+}
+
 /**
  * A plan's missing items as backlog markdown: short-list rows (`| ID | Prio | Task | Epic |`), then
  * one detail block. Mandatory gaps are P0, standard gaps P1; skipped items are deviations, no gaps.
@@ -565,8 +583,9 @@ function repoLabel(root) {
 export function gapList(plan) {
   const summaries = new Map(loadModel().items.map((i) => [i.id, i.summary]));
   const repo = repoLabel(plan.repo);
+  const tag = gapTag(plan.repo);
   const gaps = plan.items.filter((i) => i.state === 'missing').map((item, n) => ({
-    id: `${GAP_PREFIX}-${String(n + 1).padStart(2, '0')}`,
+    id: `${GAP_PREFIX}-${tag ? tag + '-' : ''}${String(n + 1).padStart(2, '0')}`,
     prio: item.class === 'mandatory' ? 'P0' : 'P1',
     task: `Add to \`${repo}\`: ${summaries.get(item.id) ?? item.id}${item.reason ? ` (${item.reason})` : ''}`,
     item: item.id,
