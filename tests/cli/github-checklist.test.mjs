@@ -347,3 +347,78 @@ test('--done finds upper-case repo folders in the recorded spelling and, on Wind
     assert.equal(cli('github-checklist', lower.root, '--done', 'shop/api=create').status, 0);
   }
 });
+
+// --- 1.3.1 (practice test S3-5, S1-6, S5-2): owner, names and non-GitHub origins ---
+
+const GITLAB_REMOTE = ['git', 'gitlab.com:o/web.git'].join('@');
+
+test('github-checklist uses --owner and --name for repos without origin', () => {
+  const { root } = multi();
+  const r = cli('github-checklist', root, '--owner', 'acme', '--name', 'shop/api=api-service');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.json.repos.map((x) => [x.path, x.slug, x.remote]), [
+    ['shop/api', 'acme/api-service', false], ['shop/web', 'o/web', true], ['notes', 'acme/notes', false],
+  ]);
+  const md = read(root, 'docs/github-settings.md');
+  assert.ok(md.includes('repos/acme/api-service/rulesets'));
+  assert.ok(md.includes('repos/acme/notes/vulnerability-alerts'));
+  assert.ok(md.includes('repos/o/web/rulesets'), 'an origin still wins');
+  assert.doesNotMatch(md, /OWNER/);
+  assert.doesNotMatch(md, /No GitHub remote yet/, 'the slug is real, nothing to replace');
+  // The create step of a --done checklist uses the named repo, and the hash record still follows the file.
+  const done = cli('github-checklist', root, '--owner', 'acme', '--name', 'shop/api=api-service', '--done', 'shop/web=push');
+  assert.equal(done.status, 0, done.stderr);
+  assert.match(read(root, 'docs/github-settings.md'), /gh repo create acme\/api-service --private --source shop\/api --remote origin/);
+  assert.deepEqual(wsJson(root).templateHashes['docs/github-settings.md'], { file: lfHash(read(root, 'docs/github-settings.md')) });
+  // The docs repo takes its default or its own name.
+  const docs = multi();
+  assert.equal(cli('github-checklist', docs.root, '--owner', 'acme', '--name', '.=my-docs', '--done', '.=create').status, 0);
+  assert.match(read(docs.root, 'docs/github-settings.md'), /^## \. \(`acme\/my-docs`\)$/m);
+  // The same validation as github-plan, before anything is written.
+  const bad = multi();
+  for (const [args, re] of [
+    [['--owner', 'a_b'], /--owner must be a GitHub login/],
+    [['--owner', 'acme', '--name', 'nope=x'], /--name: unknown repo path 'nope'/],
+    [['--owner', 'acme', '--name', 'shop/api=-x'], /--name: '-x' is not a valid repo name/],
+    [['--owner', 'acme', '--name', 'shop/api'], /--name must look like <path>=<name>/],
+    [['--name', 'shop/api=x'], /--name needs --owner/],
+  ]) {
+    const e = cli('github-checklist', bad.root, ...args);
+    assert.equal(e.status, 1, args.join(' '));
+    assert.match(e.stderr, re);
+    assert.equal(existsSync(join(bad.root, 'docs', 'github-settings.md')), false);
+  }
+});
+
+test('github-checklist explains a non-GitHub origin instead of listing commands', () => {
+  const { root } = multiRepoWorkspace({ registered: true, visibility: { 'shop/api': 'private', 'shop/web': 'public' } });
+  gitIn(join(root, 'shop', 'web'), 'remote', 'add', 'origin', GITLAB_REMOTE);
+  const out = cli('github-checklist', root, '--done', 'shop/api=create');
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(out.json.repos.find((x) => x.path === 'shop/web').slug, null);
+  const web = read(root, 'docs/github-settings.md').split(/^## /m).find((s) => s.startsWith('shop/web'));
+  assert.match(web, /Its origin is not on GitHub; Buildorder sets nothing up there\./);
+  assert.doesNotMatch(web, /gh |OWNER|```/);
+  // German text with umlauts, from the German template.
+  const de = multiRepoWorkspace({ registered: true });
+  gitIn(join(de.root, 'shop', 'web'), 'remote', 'add', 'origin', GITLAB_REMOTE);
+  const file = join(de.root, '.claude', 'workspace.json');
+  writeFileSync(file, JSON.stringify({ ...wsJson(de.root), language: { docs: 'de' } }));
+  assert.equal(cli('github-checklist', de.root).status, 0);
+  const deWeb = read(de.root, 'docs/github-settings.md').split(/^## /m).find((s) => s.startsWith('shop/web'));
+  assert.match(deWeb, /liegt nicht auf GitHub/);
+  assert.match(deWeb, UMLAUT);
+  assert.doesNotMatch(deWeb, /gh /);
+});
+
+test('github-checklist without --owner is unchanged', () => {
+  const { root } = multi();
+  const out = checklist(root);
+  assert.deepEqual(out.repos.map((x) => [x.path, x.slug, x.remote]), [
+    ['shop/api', 'OWNER/api', false], ['shop/web', 'o/web', true], ['notes', 'OWNER/notes', false],
+  ]);
+  const md = read(root, 'docs/github-settings.md');
+  assert.match(md, /No GitHub remote yet: after the first push, replace `OWNER\/api`/);
+  assert.equal(createHash('sha256').update(readFileSync(join(root, 'docs', 'github-settings.md'))).digest('hex'),
+    '1e6e83f69bedad4c40bfac98801eb28534568af07d06825d461c461b4efe50d1');
+});

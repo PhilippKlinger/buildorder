@@ -5,6 +5,7 @@
     "> from the workspace root, once the repo exists on GitHub and `main` is pushed. They need the GitHub CLI, logged in",
     "> with admin rights on the repo (`gh auth status`)."
   ],
+  "nonGithub": "Its origin is not on GitHub; Buildorder sets nothing up there.",
   "noRemote": "No GitHub remote yet: after the first push, replace `{{slug}}` with the repo's owner and name.",
   "ruleset": "- [ ] Ruleset on the default branch: pull requests only, no force push, no deletion, required check `{{check}}`",
   "looseRuleset": [
