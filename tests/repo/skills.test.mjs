@@ -9,7 +9,7 @@ import { repoRoot } from '../helpers/repo.mjs';
 
 const SKILLS = join(repoRoot, 'plugins', 'buildorder', 'skills');
 const WORKFLOW = ['assess', 'handoff', 'kickoff', 'scout'];
-const MODULE = ['review', 'secure', 'deploy-gate', 'deps', 'ci-fix'];
+const MODULE = ['review', 'secure', 'deploy-gate', 'deps', 'ci-fix', 'web-quality'];
 const CLI = '"${CLAUDE_PLUGIN_ROOT}/scripts/buildorder.mjs"';
 const STATUS_INJECTION = '!`node ' + CLI + ' status`';
 const DETECT_INJECTION = '!`node ' + CLI + ' detect .`';

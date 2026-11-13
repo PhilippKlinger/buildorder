@@ -68,7 +68,7 @@ It does the following:
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
 5. Pushes nothing.
 
-Option modules such as `versioning` are added with `--with <module>` on the init command line.
+**Options:** the modules `versioning` and `web-quality` are options (class `option`). You choose them in the init or add them with `--with <module>` on the init command line.
 
 If you run it inside the existing repo itself, init offers to move the repo into a subfolder first, so the
 folder can become the workspace; it moves nothing without your OK. Afterwards, open a new session so the hooks
@@ -96,7 +96,8 @@ session from these docs.
 | `/buildorder:assess` | Static assessment of one repo, findings ranked P0 to P3 |
 | `/buildorder:review` | Code review with the project's own criteria (reports only) |
 | `/buildorder:secure` | Security and data protection audit (reports only) |
-| `/buildorder:scout` | Sharpens a plan before building: names blind spots, asks one question at a time, writes a brief or spec with acceptance criteria |
+| `/buildorder:scout` | Sharpens a plan before building: names blind spots, asks one question at a time, writes a brief or spec with acceptance criteria; with Superpowers installed, Superpowers generates the brief and `scout` checks it |
+| `/buildorder:web-quality` | Static check of a web frontend for performance, SEO and accessibility; needs the `web-quality` module; reports only |
 | `/buildorder:deploy-gate` | Go/no-go check before a deploy (clean pushed state, CI of HEAD, production compose file, variables); needs the `docker-cicd` module; reports only, never deploys |
 | `/buildorder:deps` | Triage of open Dependabot pull requests: release notes, CI state, merge order; reports only, merges nothing |
 | `/buildorder:ci-fix` | Diagnoses failed GitHub Actions runs: names job, step and log line, proposes a fix branch; applies nothing |
@@ -208,7 +209,7 @@ Known limits:
 - `/buildorder:deploy-gate`, `/buildorder:deps` and `/buildorder:ci-fix` make read-only `gh` calls, each after your
   permission. For a failed run, excerpts of the CI log enter the model's context.
 - No telemetry. Data leaves your machine only when `/buildorder:radar` fetches the fixed public Claude Code pages
-  (WebFetch) and through `gh` commands that you run yourself.
+  (WebFetch) and through the `gh` commands of `/buildorder:deploy-gate`, `/buildorder:deps` and `/buildorder:ci-fix`, each after your permission.
 - Hooks are guardrails, not a guarantee; see [Security model](#security-model) for what they do and their known
   limits.
 - Private repos skip CodeQL and Dependency Review (paid GitHub products: GitHub Code Security, which GitHub offers only
