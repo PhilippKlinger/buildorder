@@ -30,7 +30,9 @@ the caller takes the proposed tasks over.
    `workflows`, `hasTests` and `docker` as given. Do not detect these again.
 2. Read only what the facts point to: README, manifests and lockfiles, Dockerfile and compose file, CI workflows,
    config and entry points, traces of today's deploy (deploy scripts, FTP or SFTP config, `.htaccess`).
-   Read-only git commands (`git -C <repo> log`, `branch -a`, `tag`) are fine for age and branches.
+   Read-only git commands (`git -C "<repo folder>" log`, `branch -a`, `tag`) are fine for age and branches.
+   Do not `cd`: every command starts in the working directory again. Run one command per call, with no `cd ... &&` chains
+   (they are denied or ask for permission).
 3. **Secrets:** look for tracked env and key files, and for key or token patterns in code and config. Check the
    history for env and key files that were added once. Report file, line and kind only. Never print a value,
    not even shortened.
@@ -58,6 +60,7 @@ file already settles.
 
 Write `docs/audits/<YYYY-MM-DD>-assess-<repo-slug>.md` in the workspace root (slug: the repo path with `/` as `-`).
 If the file exists, append `-2`, `-3` and so on; never overwrite. Write it in the language `language.docs`.
+If the write is refused, show the audit text in the reply and stop: no heredoc, no shell, no other file.
 
 ```markdown
 # Assessment: <repo>
