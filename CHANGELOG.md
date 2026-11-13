@@ -5,6 +5,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [Unreleased]
+
+### Added
+
+- Option modules, added with `--with <module>` on init.
+- `versioning` module with the hook `version-drift`: warns on release prompts when the latest tag and the version files disagree.
+- `template-pins.yml`: keeps the actions used in the templates current through Dependabot.
+
+### Fixed
+
+- React starter: `minimatch` override 11.0.1.
+- Django image stays on the Python line its Django LTS supports.
+
 ## [1.1.0] - 2026-11-13
 
 ### Added

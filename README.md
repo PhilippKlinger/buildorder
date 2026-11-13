@@ -68,6 +68,8 @@ It does the following:
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
 5. Pushes nothing.
 
+Option modules such as `versioning` are added with `--with <module>` on the init command line.
+
 If you run it inside the existing repo itself, init offers to move the repo into a subfolder first, so the
 folder can become the workspace; it moves nothing without your OK. Afterwards, open a new session so the hooks
 load, and start with `/buildorder:kickoff`. After updating the plugin, run `/buildorder:sync` to bring the
@@ -108,6 +110,7 @@ session from these docs.
 - Prompt hints: adds keyword hints and suggests `/effort high` for debugging, security or release work.
 - Compaction guard: after a compaction, asks to re-sync from the handoff before continuing.
 - Handoff reminder: when commits are newer than the handoff file.
+- Version drift: on release prompts, warns when the latest tag and the version files disagree (`versioning` module).
 
 **Stacks:** five modules, each with CI jobs and a tested starter.
 
@@ -150,6 +153,7 @@ demand; `ci-ok` requires every job to succeed.
 - `test`: the full test suite and the hook timing test on Ubuntu, Windows and macOS with Node 22 and 24.
 - `validate`: `claude plugin validate --strict` for the marketplace and the plugin.
 - `pre-commit`: the repo's pre-commit hooks.
+- `template-pins.yml` (separate workflow): lists the actions used in the templates and lets Dependabot keep them current; `node scripts/template-pins.mjs --write` copies them into the templates.
 - `zizmor`: zizmor over this repo's workflows and over the workflows `standard` generates, then actionlint over
   the generated ones.
 - `django-fixture`, `python-fixture`, `go-fixture`, `react-fixture`, `angular-fixture`: each writes that stack's
