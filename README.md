@@ -213,6 +213,7 @@ Known limits:
 - `/buildorder:init` creates GitHub repos, pushes `main` and applies settings only after your consent for each repo.
   Anything your `settings.json` denies stays denied (`deny` always wins); init then falls back to the checklist with
   ready commands that you run. It never pushes another branch.
+- Before it creates anything, init reads `gh auth status`, `gh api user` and `gh repo view <owner>/<name>` (read only, each after your permission).
 - Skill pre-approvals hold only within one turn: after a declined step or a pause, reads ask once more. Init therefore
   asks every question as a dialog and shows the commands of each consent inside it.
 - `scaffold --without [<path>:]<id>=<reason>` records a skipped standard item per repo, and
