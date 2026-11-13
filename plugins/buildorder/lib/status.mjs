@@ -71,9 +71,10 @@ export function status(dir) {
     .filter((rel) => rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
     .map((rel) => rel.split(sep).join('/'));
   const places = [describe('docs', '.', root, nested), ...repos.map((r) => describe(r.path, r.path, r.abs))];
-  const registered = new Set(nested);
+  // Compared in normalized form: on a case-insensitive disk `shop/api` on record is the folder `Shop/Api`.
+  const registered = new Set(nested.map(normalizePath));
   const warnings = findCodeRepos(root)
-    .filter((path) => !registered.has(path))
+    .filter((path) => !registered.has(normalizePath(path)))
     .map((path) => ({ kind: 'unregistered-repo', path }));
   return { root, name: typeof ws.name === 'string' ? ws.name : '', places, warnings };
 }
@@ -98,7 +99,7 @@ export function formatStatus(result) {
   }
   for (const w of result.warnings ?? []) {
     if (w.kind === 'unregistered-repo') {
-      lines.push(`Warning: ${w.path} is a code repo that is not set up in this workspace; adding repos later comes in a later release`);
+      lines.push(`Warning: ${w.path} is a code repo that is not set up in this workspace; adding repos later comes in a later release, until then it stays without the standard`);
     }
   }
   return lines.join('\n') + '\n';
