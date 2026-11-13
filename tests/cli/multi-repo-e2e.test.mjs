@@ -28,7 +28,7 @@ test('a multi-repo workspace goes from scaffold to done with per-repo visibility
   ok('scaffold', root, '--lang', 'en', '--visibility', 'private', '--visibility', 'shop/web=public');
   const ws = JSON.parse(readFileSync(join(root, '.claude', 'workspace.json'), 'utf8'));
   assert.deepEqual(Object.fromEntries(ws.repos.map((r) => [r.path, r.visibility])),
-    { 'shop/api': 'private', 'shop/web': 'public', notes: 'private' });
+    { 'shop/api': 'private', 'shop/web': 'public', notes: undefined });
 
   // One gap list per code repo, each with its own tag; no id repeats across the workspace.
   const ids = [];

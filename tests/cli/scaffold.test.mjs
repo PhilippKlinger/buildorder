@@ -356,17 +356,20 @@ test('scaffold records the visibility per repo with a default and overrides', ()
   const { root } = multiRepoWorkspace();
   scaffold(root, '--visibility', 'private', '--visibility', 'shop/web=public');
   const by = Object.fromEntries(wsOf(root).repos.map((r) => [r.path, r.visibility]));
-  assert.deepEqual(by, { 'shop/api': 'private', 'shop/web': 'public', notes: 'private' });
+  assert.deepEqual(by, { 'shop/api': 'private', 'shop/web': 'public', notes: undefined }, 'a default skips the repo without code');
   const only = multiRepoWorkspace();
   scaffold(only.root, '--visibility', 'shop/web=public');
   const o = Object.fromEntries(wsOf(only.root).repos.map((r) => [r.path, r.visibility]));
   assert.deepEqual(o, { 'shop/api': undefined, 'shop/web': 'public', notes: undefined });
 });
 
-test('a single --visibility value still applies to every repo', () => {
+test('a single --visibility value applies to every code repo; a repo without code needs its own <path>=', () => {
   const { root } = multiRepoWorkspace();
   scaffold(root, '--visibility', 'public');
-  assert.deepEqual(wsOf(root).repos.map((r) => r.visibility), ['public', 'public', 'public']);
+  assert.deepEqual(wsOf(root).repos.map((r) => [r.path, r.visibility]), [['notes', undefined], ['shop/api', 'public'], ['shop/web', 'public']]);
+  const own = multiRepoWorkspace();
+  scaffold(own.root, '--visibility', 'public', '--visibility', 'notes=private');
+  assert.deepEqual(wsOf(own.root).repos.map((r) => r.visibility), ['private', 'public', 'public']);
 });
 
 test('scaffold records option modules per repo', () => {
@@ -375,7 +378,11 @@ test('scaffold records option modules per repo', () => {
   const by = Object.fromEntries(wsOf(root).repos.map((r) => [r.path, r.standards?.modules ?? []]));
   assert.ok(by['shop/api'].includes('versioning') && !by['shop/api'].includes('web-quality'));
   assert.ok(by['shop/web'].includes('versioning') && by['shop/web'].includes('web-quality'));
-  assert.ok(by.notes.includes('versioning') && !by.notes.includes('web-quality'));
+  assert.deepEqual(by.notes, [], 'a default skips the repo without code');
+  const own = multiRepoWorkspace();
+  scaffold(own.root, '--with', 'versioning', '--with', 'notes=versioning');
+  const notes = wsOf(own.root).repos.find((r) => r.path === 'notes');
+  assert.deepEqual(notes.standards.modules, ['versioning']);
 });
 
 test('scaffold refuses an unknown repo path, a doubled path or an unknown value before writing anything', () => {

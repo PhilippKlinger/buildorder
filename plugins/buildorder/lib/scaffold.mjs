@@ -96,12 +96,13 @@ function recorded(root, repo, options) {
 }
 
 /**
- * Per-repo values of a repeatable option: a value without `=` is the default for every path in `paths`,
- * `<path>=<value>` overrides it for that one repo. Returns Map<path, value> (paths without a value are
- * absent). With `many`, the value of a path is the list of its values (default values first).
+ * Per-repo values of a repeatable option: a value without `=` is the default for every path in `paths`
+ * that `defaults` accepts (all by default), `<path>=<value>` sets it for that one repo of `paths`. Returns
+ * Map<path, value> (paths without a value are absent). With `many`, the value of a path is the list of its
+ * values (default values first).
  * Throws on an unknown path, a path given twice (unless `many`) and a value outside `allowed` (when given).
  */
-export function perRepo(values, paths, allowed = null, { many = false, option = 'value' } = {}) {
+export function perRepo(values, paths, allowed = null, { many = false, option = 'value', defaults: takesDefault = () => true } = {}) {
   const known = new Map(paths.map((p) => [normalizePath(p), p]));
   const defaults = [];
   const own = new Map();
@@ -122,7 +123,8 @@ export function perRepo(values, paths, allowed = null, { many = false, option = 
   }
   const result = new Map();
   for (const path of paths) {
-    const list = many ? [...defaults, ...(own.get(path) ?? [])] : own.get(path) ?? (defaults.length ? [defaults.at(-1)] : []);
+    const base = takesDefault(path) ? defaults : [];
+    const list = many ? [...base, ...(own.get(path) ?? [])] : own.get(path) ?? (base.length ? [base.at(-1)] : []);
     if (list.length) result.set(path, many ? list : list[0]);
   }
   return result;
@@ -223,10 +225,11 @@ function ignoreRepos(root, paths, put, skipped) {
 
 /**
  * Writes the workspace files into `dir` (an existing folder). Options: `lang` (en|de), `name`, `repo`
- * (repo paths to record; default: every repo detect finds), `visibility` (public|private, recorded on each
- * repo entry; /buildorder:secure reads it), `newRepo` (a folder name: create the new project's code repo
- * there with `git init` on main and record it), `with` (option module ids: each picked repo gets
- * the plan modules of the repo plus these as `standards`; validated before anything is written). Without `lang` and `name`, a rerun keeps
+ * (repo paths to record; default: every repo detect finds), `visibility` (public|private, or `<path>=<value>`; a value
+ * without a path is recorded on each code repo entry; /buildorder:secure reads it), `newRepo` (a folder name:
+ * create the new project's code repo there with `git init` on main and record it), `with` (option module ids, or
+ * `<path>=<id>`: each code repo gets the plan modules of the repo plus these as `standards`, a repo without code
+ * only through its own `<path>=`; validated before anything is written). Without `lang` and `name`, a rerun keeps
  * those of the existing workspace.json (resume after an abort); a first run uses en and the folder name.
  * The root becomes a git repo without a commit (`rootRepo`: created | existing), and its .gitignore lists
  * every repo folder plus Claude Code's local settings (`ignored`: the lines added).
@@ -256,8 +259,12 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const isNew = (w) => newRepo !== undefined && normalizePath(w) === normalizePath(newRepo);
   const chosen = (repo?.length ? repo.filter((w) => !isNew(w)).map((w) => foundRepo(root, d.repos, w).path) : d.repos.map((r) => r.path))
     .concat(newRepo === undefined ? [] : [newRepo]);
-  const visByRepo = perRepo(visValues, chosen, VISIBILITIES, { option: '--visibility' });
-  const withByRepo = perRepo(withIds, chosen, null, { many: true });
+  // A value without a path is the default for the code repos (and the new project's repo) only: a repo without
+  // code gets a value through its own `<path>=` (spec A1: registered without a standard).
+  const codePaths = new Set(d.repos.filter((r) => r.isCode).map((r) => normalizePath(r.path)));
+  const takesDefault = (p) => codePaths.has(normalizePath(p)) || isNew(p);
+  const visByRepo = perRepo(visValues, chosen, VISIBILITIES, { option: '--visibility', defaults: takesDefault });
+  const withByRepo = perRepo(withIds, chosen, null, { many: true, defaults: takesDefault });
   for (const list of withByRepo.values()) optionModules(model, list, null);
   if (newRepo !== undefined) {
     initRepo(root, newRepo);
