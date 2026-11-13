@@ -88,7 +88,7 @@ Show compactly:
   deselected.
 - **Options:** the option modules (`class: option` in the model), each with a one-line summary, off unless chosen and
   never asked in the interview. Recommend `versioning` when the release style is tags with SemVer, and `web-quality`
-  when the stack is `react` or `angular`; name the evidence. Every module the user accepts becomes one `--with
+  when the stack is `react` or `angular` (it adds the rule `.claude/rules/web-quality.md`); name the evidence. Every module the user accepts becomes one `--with
   <module>` on `plan`, `scaffold` and `standard`; only ids the model lists as options work.
 - **Deviations** with their reasons (`deviations`), and the first backlog tasks.
 - **GitHub:** at the very end, `docs/github-settings.md` and `docs/github-ruleset.json`: a checklist with ready

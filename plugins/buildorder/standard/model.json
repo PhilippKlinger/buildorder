@@ -48,6 +48,7 @@
       "check": { "files": ["Dockerfile"], "workflow": ["trivy", "attest-build-provenance"] }
     },
     { "id": "deploy", "class": "standard", "provider": "docker-cicd", "where": "repo", "summary": "CD for the deploy target" },
-    { "id": "versioning", "class": "option", "provider": "versioning", "where": "plugin", "summary": "Version drift warning on release prompts (hook version-drift)" }
+    { "id": "versioning", "class": "option", "provider": "versioning", "where": "plugin", "summary": "Version drift warning on release prompts (hook version-drift)" },
+    { "id": "web-quality", "class": "option", "provider": "web-quality", "where": "workspace", "stacks": ["react", "angular"], "summary": "Performance, SEO and accessibility: a rule for the frontend sources and the web-quality skill" }
   ]
 }

@@ -298,3 +298,37 @@ test('scaffold refuses an unknown option before writing anything', () => {
   assert.equal(existsSync(join(dir, '.claude')), false);
   assert.equal(existsSync(join(dir, 'CLAUDE.md')), false);
 });
+
+const RULE = '.claude/rules/web-quality.md';
+
+test('scaffold --with web-quality writes the web-quality rule scoped to the repo\'s sources', () => {
+  const dir = tmp('scaffold wq');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  const out = scaffold(dir, '--repo', 'app', '--with', 'web-quality');
+  assert.ok(out.created.includes(RULE));
+  const rule = read(dir, RULE);
+  assert.match(rule, /^---\npaths:\n  - "app\/src\/\*\*\/\*\.\{ts,tsx,html,css,scss\}"\n  - "app\/index\.html"\n---\n/);
+  for (const h of ['Semantics and SEO', 'Accessibility (WCAG AA)', 'Performance (LCP, CLS, INP)', 'Responsive']) {
+    assert.ok(rule.includes(`## ${h}`), h);
+  }
+  assert.doesNotMatch(rule, /\{\{/);
+});
+
+test('scaffold without web-quality writes no rule', () => {
+  const dir = tmp('scaffold no wq');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  const out = scaffold(dir, '--repo', 'app');
+  assert.equal(out.created.includes(RULE), false);
+  assert.equal(existsSync(join(dir, '.claude', 'rules')), false);
+});
+
+test('a rerun keeps an edited web-quality rule', () => {
+  const dir = tmp('scaffold wq rerun');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  scaffold(dir, '--repo', 'app', '--with', 'web-quality');
+  write(dir, { [RULE]: 'my own rule\n' });
+  const again = scaffold(dir, '--repo', 'app', '--with', 'web-quality');
+  assert.ok(again.skipped.includes(RULE));
+  assert.equal(again.created.includes(RULE), false);
+  assert.equal(read(dir, RULE), 'my own rule\n');
+});

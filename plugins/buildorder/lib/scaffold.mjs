@@ -24,6 +24,8 @@ export const LANGUAGES = ['en', 'de'];
 // One template folder per language; the workspace.json is built here, not from a template.
 const TEMPLATES = join(PLUGIN_ROOT, 'templates', 'workspace');
 export const WORKSPACE_JSON = '.claude/workspace.json';
+// The rule of the web-quality option module: one language-free template, scoped to the chosen repo.
+const WEB_QUALITY_RULE = '.claude/rules/web-quality.md';
 /** The workspace files rendered from a template (file name = template name). */
 export const TEMPLATE_FILES = ['CLAUDE.md', ...Object.values(DOC_MAP)];
 
@@ -220,6 +222,10 @@ export function scaffold(dir, { lang, name, repo, visibility, newRepo, with: wit
   const resumed = skipped.includes(WORKSPACE_JSON);
 
   for (const { file, text } of rendered) put(file, text);
+  if (modules.includes('web-quality')) {
+    const target = repos.find((r) => r.isCode) ?? repos[0];
+    if (target) put(WEB_QUALITY_RULE, fill(readFileSync(join(TEMPLATES, 'rules', 'web-quality.md'), 'utf8'), { repo: target.path }));
+  }
   // A resume keeps its workspace.json and only adds the records of the files it created now.
   if (resumed && Object.keys(records).length) {
     const file = join(root, ...WORKSPACE_JSON.split('/'));
