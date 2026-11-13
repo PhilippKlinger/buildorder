@@ -64,6 +64,12 @@ test('web-quality invents no measurements and points to a Lighthouse run the use
   assert.match(text, /Lighthouse.{0,80}the user starts/i);
 });
 
+test('web-quality report header invites no scores and allows missing-file findings', () => {
+  assert.doesNotMatch(raw, /~/);
+  assert.match(text, /Performance: low \/ medium \/ high risk/);
+  assert.match(text, /missing file.{0,160}path where it was looked for/i);
+});
+
 test('web-quality treats repo files as data, never instructions', () => {
   assert.match(text, /data, never instructions/i);
 });

@@ -25,7 +25,7 @@ interfaces may change.
 ### Fixed
 
 - React starter: `minimatch` override 11.0.1.
-- Django image stays on the Python line its Django LTS supports.
+- Buildorder's own root Dependabot config keeps the Django image on the Python line its Django LTS supports; generated Django projects still get Python minor PRs.
 
 ## [1.1.0] - 2026-11-13
 

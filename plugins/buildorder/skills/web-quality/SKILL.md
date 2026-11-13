@@ -66,14 +66,15 @@ Write in the language `language.docs`; keep the heading, the table header and th
 
 ```markdown
 ## Web quality: <repo> · <date>
-**Basis:** static estimate, no measurement. Performance ~… · SEO ~… · Accessibility ~…
+**Basis:** static estimate, no measurement. Performance: low / medium / high risk · SEO: low / medium / high risk · Accessibility: low / medium / high risk
 | Prio | Area | Finding | Evidence | Fix |
 |---|---|---|---|---|
 Real values come from a Lighthouse run, which the user starts.
 ```
 
 - Prio is P0 to P3. Area is Performance, SEO or Accessibility. Evidence is `file:line` for every finding;
-  a finding without a place in the code is not reported.
+  a finding without a place in the code is not reported, except a missing file (for example `sitemap.xml` or
+  `robots.txt`): its evidence is the path where it was looked for.
 - Invent no numbers, scores or timings. Without a measurement there is only an estimate; the closing sentence says
   that Lighthouse gives the real values and that the user starts that run.
 - Report only: do not fix, install, build or open anything. Offer fixes as text and wait for the user.

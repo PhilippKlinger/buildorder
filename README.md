@@ -68,7 +68,7 @@ It does the following:
    Existing project: leaves the repo unchanged and turns missing items into backlog tasks.
 5. Pushes nothing.
 
-**Options:** the modules `versioning` and `web-quality` are options (class `option`). You choose them in the init or add them with `--with <module>` on the init command line.
+**Options:** the modules `versioning` and `web-quality` are options (class `option`). You choose them in the init confirmation; init passes the chosen options on to `plan`, `scaffold` and `standard`.
 
 If you run it inside the existing repo itself, init offers to move the repo into a subfolder first, so the
 folder can become the workspace; it moves nothing without your OK. Afterwards, open a new session so the hooks
@@ -154,7 +154,7 @@ demand; `ci-ok` requires every job to succeed.
 - `test`: the full test suite and the hook timing test on Ubuntu, Windows and macOS with Node 22 and 24.
 - `validate`: `claude plugin validate --strict` for the marketplace and the plugin.
 - `pre-commit`: the repo's pre-commit hooks.
-- `template-pins.yml` (separate workflow): lists the actions used in the templates and lets Dependabot keep them current; `node scripts/template-pins.mjs --write` copies them into the templates.
+- `template-pins.yml` (separate workflow): lists the actions used in the templates and lets Dependabot keep them current; `node scripts/template-pins.mjs --write` copies them into the templates. A Dependabot PR that bumps an action in `template-pins.yml` stays red until `node scripts/template-pins.mjs --write` is committed on its branch.
 - `zizmor`: zizmor over this repo's workflows and over the workflows `standard` generates, then actionlint over
   the generated ones.
 - `django-fixture`, `python-fixture`, `go-fixture`, `react-fixture`, `angular-fixture`: each writes that stack's
