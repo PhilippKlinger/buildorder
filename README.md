@@ -94,6 +94,10 @@ session from these docs.
 | `/buildorder:assess` | Static assessment of one repo, findings ranked P0 to P3 |
 | `/buildorder:review` | Code review with the project's own criteria (reports only) |
 | `/buildorder:secure` | Security and data protection audit (reports only) |
+| `/buildorder:scout` | Sharpens a plan before building: names blind spots, asks one question at a time, writes a brief or spec with acceptance criteria |
+| `/buildorder:deploy-gate` | Go/no-go check before a deploy (clean pushed state, CI of HEAD, production compose file, variables); needs the `docker-cicd` module; reports only, never deploys |
+| `/buildorder:deps` | Triage of open Dependabot pull requests: release notes, CI state, merge order; reports only, merges nothing |
+| `/buildorder:ci-fix` | Diagnoses failed GitHub Actions runs: names job, step and log line, proposes a fix branch; applies nothing |
 | `/buildorder:sync` | Lists what the installed templates would add or update in `CLAUDE.md` and the doc-map; writes after your OK and never overwrites a file you changed |
 | `/buildorder:radar` | Reads the official Claude Code sources for news since the last run and proposes at most three changes; changes no files except the run date in `.claude/workspace.json` |
 
@@ -195,8 +199,10 @@ Known limits:
 
 ## Limits and safety
 
-- Buildorder never pushes, never creates repositories and never calls the GitHub API at present.
+- Buildorder never pushes and never creates repositories. `/buildorder:init` does not call the GitHub API:
   GitHub settings are a checklist with ready commands that you run.
+- `/buildorder:deploy-gate`, `/buildorder:deps` and `/buildorder:ci-fix` make read-only `gh` calls, each after your
+  permission. For a failed run, excerpts of the CI log enter the model's context.
 - No telemetry. Data leaves your machine only when `/buildorder:radar` fetches the fixed public Claude Code pages
   (WebFetch) and through `gh` commands that you run yourself.
 - Hooks are guardrails, not a guarantee; see [Security model](#security-model) for what they do and their known
