@@ -121,6 +121,8 @@ test('the react starter overrides minimatch with the patched 11.0.1', () => {
   assert.deepEqual(pkg.overrides, { minimatch: '11.0.1' });
   const lock = JSON.parse(starterFile('package-lock.json'));
   assert.equal(lock.packages['node_modules/minimatch'].version, '11.0.1');
+  // The transitive package of the override stays within the 14-day cooldown (1.0.3, 2026-10-28; 1.1.0 was too new).
+  assert.equal(lock.packages['node_modules/@isaacs/nonrecursive-glob-match'].version, '1.0.3');
 });
 
 test('react starter: .gitattributes forces LF', () => {
