@@ -42,3 +42,11 @@ test('a standard item needs a reason, and the id must be known', () => {
   }
   assert.throws(() => deselections(loadModel(), ['nope=x']), /unknown standard item 'nope'/);
 });
+
+test('versioning is an option module that lives in the plugin', () => {
+  const item = loadModel().items.find((i) => i.id === 'versioning');
+  assert.equal(item?.class, 'option');
+  assert.equal(item.provider, 'versioning');
+  assert.equal(item.where, 'plugin');
+  assert.equal(item.summary, 'Version drift warning on release prompts (hook version-drift)');
+});

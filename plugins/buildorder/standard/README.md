@@ -6,12 +6,19 @@
 |---|---|
 | `mandatory` | always set up; `--without` refuses it |
 | `standard` | set up by default; `--without <id>=<reason>` deselects it, and the reason is recorded |
-| `option` | set up only when chosen |
+| `option` | set up only when chosen with `--with <id>` |
+
+An `option` is chosen with `--with <id>` (repeatable) on `plan`, `standard` and `scaffold`. An unknown id, an item
+of another class or, with the optional item field `stacks` (a list of stack ids), a stack outside that list is an
+error before anything is written. A chosen option is listed in `repos[].standards.modules` of `workspace.json`:
+`standard --apply` writes it for a new project, `scaffold --repo … --with …` for an existing one, where
+`standard --apply` never runs. A module is active when it is listed there.
 
 `provider` is `core` (stack-independent, templates in `templates/repo/`), `stack` (the stack module) or a
-cross-cutting module such as `docker-cicd`. `where` says where the item lives: `repo` items are written and
-checked by `buildorder.mjs standard`; `github` (rulesets), `plugin` (hooks) and `workspace` (doc-map) items are
-handled elsewhere. `check` says how a repo is checked for an item (gap list for an existing project):
+cross-cutting module such as `docker-cicd` or an option module such as `versioning`. `where` says where the item
+lives: `repo` items are written and checked by `buildorder.mjs standard`; `github` (rulesets), `plugin` (hooks;
+option modules such as `versioning` act through a plugin hook, not through repo files) and `workspace` (doc-map)
+items are handled elsewhere. `check` says how a repo is checked for an item (gap list for an existing project):
 `files` (one of them exists), `workflow` (every pattern occurs in `.github/workflows/*.yml`), `pins` (every
 `uses:` is pinned to a full commit SHA). `paidOnPrivate` items need a paid GitHub product in private repos.
 

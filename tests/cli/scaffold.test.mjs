@@ -272,3 +272,29 @@ test('a root that is a repo or lies inside one is left alone; an existing .gitig
   assert.equal(read(inner, '.gitignore'), '.claude/settings.local.json\n/app/\n');
   assert.deepEqual(kept.ignored, ['/app/']);
 });
+
+test('scaffold --with records the option modules on the repo entry', () => {
+  const dir = tmp('scaffold with');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  codeRepo(null, { 'README.md': '# notes\n' }, { dir: join(dir, 'notes') });
+  scaffold(dir, '--repo', 'app', '--with', 'versioning', '--with', 'versioning');
+  assert.deepEqual(wsOf(dir).repos, [
+    { path: 'app', isCode: true, stacks: ['angular'], standards: { modules: ['versioning'], deviations: [] } },
+  ]);
+  const plain = tmp('scaffold without');
+  codeRepo(null, undefined, { dir: join(plain, 'app') });
+  scaffold(plain);
+  assert.equal('standards' in wsOf(plain).repos[0], false);
+});
+
+test('scaffold refuses an unknown option before writing anything', () => {
+  const dir = tmp('scaffold with refused');
+  codeRepo(null, undefined, { dir: join(dir, 'app') });
+  for (const id of ['nope', 'codeql']) {
+    const r = cli('scaffold', dir, '--with', id);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /^buildorder: (unknown option 'nope'|'codeql' is not an option \(class mandatory\))\n$/);
+  }
+  assert.equal(existsSync(join(dir, '.claude')), false);
+  assert.equal(existsSync(join(dir, 'CLAUDE.md')), false);
+});
