@@ -47,6 +47,13 @@ test('a multi-repo workspace goes from scaffold to done with per-repo visibility
   const by = Object.fromEntries(checklist.repos.map((r) => [r.path, r.visibility]));
   assert.equal(by['shop/api'], 'private');
   assert.equal(by['shop/web'], 'public');
+  // The text shows each visibility too: the private repo gets the reason, the public one the secret scanning command.
+  const md = readFileSync(join(root, 'docs', 'github-settings.md'), 'utf8');
+  const sectionOf = (path) => md.split(/^## /m).find((s) => s.startsWith(`${path} `));
+  assert.match(sectionOf('shop/api'), /left out, a private repo needs GitHub Advanced Security/);
+  assert.doesNotMatch(sectionOf('shop/api'), /secret_scanning/);
+  assert.match(sectionOf('shop/web'), /secret_scanning\]\[status\]=enabled/);
+  assert.doesNotMatch(sectionOf('shop/web'), /left out, a private repo/);
 
   assert.equal(JSON.parse(readFileSync(join(root, '.claude', 'workspace.json'), 'utf8')).initPhase, 'done');
   for (const p of repos) {

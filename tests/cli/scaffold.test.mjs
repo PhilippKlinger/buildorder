@@ -350,7 +350,8 @@ test('a rerun keeps an edited web-quality rule', () => {
 // --- per-repo values (1.3.0, A2) ---
 import { multiRepoWorkspace } from '../helpers/workspace.mjs';
 
-const tree = (dir) => readdirSync(dir, { recursive: true }).filter((p) => !/(^|[\/])\.git([\/]|$)/.test(p)).sort();
+// The folder tree without the inner .git folders of the repos; a root .git (an early git init of the docs repo) counts.
+const tree = (dir) => readdirSync(dir, { recursive: true }).filter((p) => !/[\\/]\.git([\\/]|$)/.test(p)).sort();
 
 test('scaffold records the visibility per repo with a default and overrides', () => {
   const { root } = multiRepoWorkspace();
