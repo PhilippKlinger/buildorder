@@ -142,7 +142,7 @@ function section(repo, tx, stepsMode) {
   const settings = [...ruleset, ...secrets, ...alerts, ...t('verify')];
   // Only with --done: the create and push steps, ticked with the date or still open with their command.
   const createOpen = remote ? [] : [...t('createOpen'), ...(visibility ? block(createCommand(slug, visibility, path)) : [])];
-  const stepLines = !stepsMode ? [] : [
+  const stepLines = !stepsMode ? (repo.named ? createOpen : []) : [
     ...(done.has('create') ? t('createDone') : createOpen),
     ...(done.has('push') ? t('pushDone') : [...t('pushOpen'), ...block(pushCommand(path))]),
   ];

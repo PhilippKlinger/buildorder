@@ -461,3 +461,11 @@ test('github-checklist writes no loose ruleset for a non-GitHub repo without ci-
   assert.equal(cli('github-checklist', root).status, 0);
   assert.equal(existsSync(join(root, 'docs', 'github-ruleset-without-checks.json')), false);
 });
+
+test('github-checklist with --owner still shows create for a repo without origin', () => {
+  const { root } = multi();
+  assert.equal(cli('github-checklist', root, '--owner', 'acme', '--name', 'shop/api=api-service').status, 0);
+  const md = read(root, 'docs/github-settings.md');
+  assert.match(md, /Create the repo on GitHub \(it has no GitHub remote yet\)/);
+  assert.match(md, /gh repo create acme\/api-service --private/);
+});
