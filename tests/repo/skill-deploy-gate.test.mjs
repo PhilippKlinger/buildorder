@@ -128,3 +128,19 @@ test('deploy-gate reads the deploy target from the plan and handles paas', () =>
   assert.match(text, /only for the targets `container` and `webspace`/i);
   assert.doesNotMatch(text, /does not reach this skill/i);
 });
+
+test('deploy-gate handles deploy target none with checks 1, 2 and 6 only', () => {
+  assert.match(text, /`none`.{0,80}checks 1, 2 and 6 only/i);
+  assert.match(text, /not applicable \(deploy target none: the pipeline deploys nothing\)/i);
+  assert.match(text, /verdict .{0,40}from (checks )?1, 2 and 6.{0,80}no deploy workflow (is )?needed/i);
+});
+
+test('deploy-gate gives NO-GO when the plan target and the present deploy workflow disagree', () => {
+  assert.match(text, /plan target and a deploy workflow file contradict each other, name both/i);
+  assert.match(text, /NO-GO "deploy target unclear"; do not guess/i);
+  assert.match(text, /`deployment\.yml`.{0,120}`deployment-webspace\.yml`/);
+});
+
+test('deploy-gate reads modules from the plan when the repo entry has no standards', () => {
+  assert.match(text, /no `standards`.{0,200}`modules` from the read-only `node [^`]{0,80}plan "<repo folder>"` output/i);
+});
