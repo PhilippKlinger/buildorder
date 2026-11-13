@@ -1,7 +1,7 @@
 // github-plan: the read-only GitHub plan per repo (C2, AK-7).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { cleanup, cli, gitIn, tempDir } from '../helpers/cli.mjs';
 import { multiRepoWorkspace } from '../helpers/workspace.mjs';
@@ -17,7 +17,11 @@ const plan = (root, ...args) => {
 };
 const repoOf = (out, path) => out.repos.find((r) => r.path === path);
 const step = (repo, kind) => repo.steps.find((s) => s.kind === kind);
-const files = (dir) => readdirSync(dir, { recursive: true }).filter((p) => !p.split(/[\\/]/).includes('.git')).sort();
+// Every file below `dir`, .git included, with its size and modification time: a rewritten index shows up.
+const files = (dir) => readdirSync(dir, { recursive: true }).sort()
+  .map((p) => [p, statSync(join(dir, p))])
+  .filter(([, st]) => st.isFile())
+  .map(([p, st]) => `${p} ${st.size} ${st.mtimeMs}`);
 
 test('github-plan creates, pushes and sets up a repo without origin', () => {
   const { root } = ws({ withOrigin: ['shop/web'] });
@@ -118,4 +122,68 @@ test('github-plan skips push and settings when the repo has no origin and is not
     { kind: 'push', skipped: 'no origin' },
     { kind: 'settings', skipped: 'no origin' },
   ]);
+});
+
+// --- review 1.3 fixes ---
+
+test('github-plan keeps the recorded path of upper-case folders and finds --name in any case (C1, I3)', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['Shop/Api', 'Shop/Web'], visibility: { 'Shop/Api': 'private' } });
+  const out = plan(root, '--owner', 'o', '--name', 'Shop/Api=shop-api');
+  assert.deepEqual(out.repos.map((r) => r.path).sort(), ['Shop/Api', 'Shop/Web', 'notes']);
+  const api = repoOf(out, 'Shop/Api');
+  assert.equal(api.slug, 'o/shop-api');
+  assert.deepEqual(step(api, 'push').commands, [['git', '-C', 'Shop/Api', 'push', '-u', 'origin', 'main']]);
+  if (process.platform === 'win32') {
+    assert.equal(repoOf(plan(root, '--owner', 'o', '--name', 'shop/api=x'), 'Shop/Api').slug, 'o/x', 'Windows paths ignore case');
+  }
+});
+
+test('github-plan skips create, push and settings for a non-GitHub origin (I4)', () => {
+  const { root } = ws();
+  gitIn(join(root, 'shop', 'api'), 'remote', 'add', 'origin', 'https://gitlab.com/acme/api.git');
+  gitIn(join(root, 'shop', 'web'), 'remote', 'add', 'origin', 'https://gitlab.com/mirror/github.com/o/web.git');
+  const out = plan(root, '--owner', 'o');
+  for (const path of ['shop/api', 'shop/web']) {
+    const repo = repoOf(out, path);
+    assert.deepEqual(repo.steps, [
+      { kind: 'create', skipped: 'non-GitHub origin' },
+      { kind: 'push', skipped: 'non-GitHub origin' },
+      { kind: 'settings', skipped: 'non-GitHub origin' },
+    ], path);
+    assert.equal(repo.exists, false, path);
+  }
+});
+
+test('github-plan marks whether the repo already exists on GitHub (I5)', () => {
+  const { root } = ws({ withOrigin: ['shop/web'] });
+  const out = plan(root, '--owner', 'o', '--docs');
+  assert.equal(repoOf(out, 'shop/web').exists, true);
+  assert.equal(repoOf(out, 'shop/api').exists, false);
+  assert.equal(repoOf(out, 'notes').exists, false);
+  assert.equal(out.docs.exists, false);
+});
+
+test('github-plan skips create for a folder name GitHub would refuse (M2)', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['shop/my api', 'shop/web'], visibility: { 'shop/my api': 'private' } });
+  const out = plan(root, '--owner', 'o');
+  assert.deepEqual(repoOf(out, 'shop/my api').steps, [
+    { kind: 'create', skipped: 'invalid name' },
+    { kind: 'push', skipped: 'no origin' },
+    { kind: 'settings', skipped: 'no origin' },
+  ]);
+  const named = repoOf(plan(root, '--owner', 'o', '--name', 'shop/my api=my-api'), 'shop/my api');
+  assert.deepEqual(step(named, 'create').commands[0].slice(0, 4), ['gh', 'repo', 'create', 'o/my-api']);
+});
+
+test('github-plan orders the settings alerts, secret scanning, ruleset and names the --done step of each (M6)', () => {
+  const { root } = ws({ withOrigin: ['shop/web'] });
+  const out = plan(root, '--owner', 'o');
+  const web = step(repoOf(out, 'shop/web'), 'settings');
+  assert.deepEqual(web.ticks, ['settings:alerts', 'settings:secrets', 'settings:ruleset']);
+  assert.ok(web.commands[0].includes('repos/o/web/vulnerability-alerts'));
+  assert.ok(web.commands[1].some((a) => a.includes('secret_scanning')));
+  assert.ok(web.commands[2].includes('repos/o/web/rulesets'));
+  const api = step(repoOf(out, 'shop/api'), 'settings');
+  assert.deepEqual(api.ticks, ['settings:alerts', 'settings:ruleset'], 'private: no secret scanning');
+  assert.equal(api.commands.length, api.ticks.length);
 });
