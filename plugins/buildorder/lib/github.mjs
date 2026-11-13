@@ -304,7 +304,8 @@ const skipAll = (reason) => STEPS.map((kind) => ({ kind, skipped: reason }));
  * `{ ok, repos: [{ path, slug, visibility, exists, steps }], docs }`. `exists` is true when the repo has an origin
  * on GitHub (only then may Init offer "settings only"). A step is `{ kind, commands: [string[]] }` or
  * `{ kind, skipped }`: `origin exists`, `no visibility` or `invalid name` for create; `no main` or `dirty` for
- * push; `no origin` for push and settings when there is nothing to push to; `non-GitHub origin` for all three
+ * push; `no origin` for push and settings when there is nothing to push to; `duplicate name` for create (then push and
+ * settings are `no origin`) when another repo or the docs repo gets the same `owner/name`; `non-GitHub origin` for all three
  * when the origin is on another host (slug null). A public repo has two settings steps (alerts and secret scanning before push, the ruleset after it). A settings step lists `ticks`: the `--done` step of each
  * command (`settings:alerts`, `settings:secrets`, `settings:ruleset`). `docs` is null unless `docs` is set:
  * then the workspace root gets one private `create` step.
@@ -371,5 +372,28 @@ export function githubPlan(dir, { owner, name = [], docs = false } = {}) {
     else step = { kind: 'create', commands: [createCommand(slug, 'private', '.')] };
     docsPlan = { path: '.', slug, visibility: 'private', exists: Boolean(github), steps: [step] };
   }
+  flagDuplicates([...repos, ...(docsPlan ? [docsPlan] : [])]);
   return { ok: true, repos, docs: docsPlan };
+}
+
+/**
+ * Two repos that would be created under the same `owner/name` (GitHub compares them in any case): every
+ * one of them without an origin gets `create` skipped as `duplicate name` and no push or settings, so Init
+ * asks for another name. A repo whose slug comes from an origin is never flagged, but its name is taken.
+ * Changes the plans in place.
+ */
+function flagDuplicates(plans) {
+  const groups = new Map();
+  for (const p of plans) {
+    // A non-GitHub origin has no slug; a name GitHub refuses is reported as invalid on its own.
+    if (p.slug === null || (!p.exists && !validSlug(p.slug))) continue;
+    const key = p.slug.toLowerCase();
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    for (const p of group.filter((r) => !r.exists)) {
+      p.steps = [{ kind: 'create', skipped: 'duplicate name' }, ...(p.steps.length > 1 ? [{ kind: 'push', skipped: 'no origin' }, { kind: 'settings', skipped: 'no origin' }] : [])];
+    }
+  }
 }
