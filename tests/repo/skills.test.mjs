@@ -15,7 +15,7 @@ const STATUS_INJECTION = '!`node ' + CLI + ' status`';
 const DETECT_INJECTION = '!`node ' + CLI + ' detect .`';
 // CLI commands init may pre-approve: read-only ones. Writes (standard --apply, nest, scaffold, finalize,
 // github-checklist) stay behind a permission prompt.
-const INIT_COMMANDS = ['detect', 'status', 'verify', 'plan'];
+const INIT_COMMANDS = ['detect', 'status', 'verify', 'plan', 'github-plan'];
 
 const UMLAUT = new RegExp(`[${String.fromCharCode(0xe4, 0xf6, 0xfc, 0xc4, 0xd6, 0xdc, 0xdf)}]`); // built from codes: this file stays ASCII
 // Common German function words that have no English homograph.
@@ -119,9 +119,9 @@ test('sync runs only when the user invokes it and pre-approves only its read-onl
 test('init plans and lists gaps with the pre-approved read-only plan command', () => {
   const text = read('init');
   assert.ok(toolRules('init').includes(`Bash(node ${CLI} plan *)`), 'plan * is pre-approved');
-  assert.ok(text.includes('`plan "<repo>" [--stack <id>]'), 'the confirmation runs plan');
-  assert.ok(text.includes('`plan "<repo>" <options of the plan> --gaps`'), 'the gap list comes from plan');
-  assert.doesNotMatch(text, /`standard "<repo>"[^`]*--gaps/, 'no gap list through standard');
+  assert.ok(text.includes("`plan '<repo>' [--stack <id>]"), 'the confirmation runs plan');
+  assert.ok(text.includes("`plan '<repo>' <options of the plan> --gaps`"), 'the gap list comes from plan');
+  assert.doesNotMatch(text, /`standard '<repo>'[^`]*--gaps/, 'no gap list through standard');
 });
 
 test('every live command of a skill is allowed by its own allowed-tools (else the skill aborts)', () => {

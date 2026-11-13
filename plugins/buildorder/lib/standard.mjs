@@ -1,7 +1,7 @@
 // standard: the standard model (mandatory / standard / option) and the repo files that set it up.
 // Without --apply everything here only reads; --apply writes missing files and makes one commit.
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { detectDeploy } from './deploy.mjs';
 import { PLUGIN_ROOT, repoCode } from './detect.mjs';
 import { SKIP_DIRS, readJson, walk, writeJson } from './fsx.mjs';
@@ -551,11 +551,75 @@ export function standard(dir, opts = {}, { stacksDir = STACKS_DIR } = {}) {
 const GAP_PREFIX = 'STD';
 const NO_GAPS = 'No gaps: every repo item of the standard is present or deliberately skipped.\n';
 
-/** The repo as the backlog names it: its path in the enclosing workspace, else its folder name. */
-function repoLabel(root) {
+/** The workspace-relative path of `abs` with `/`, as it is written (no lower-casing). */
+const relPath = (wsRoot, abs) => relative(wsRoot, abs).split(sep).join('/');
+
+/**
+ * The repo of `root` in its workspace: `{ wsRoot, ws, key, path }` (`key` normalized, `path` as recorded
+ * when workspace.json lists it), or null outside a workspace.
+ */
+function placeOf(root) {
   const wsRoot = findWorkspaceRoot(root);
-  const rel = wsRoot ? relativeTo(root, wsRoot) : null;
-  return rel || basename(root);
+  if (!wsRoot) return null;
+  const ws = loadWorkspace(wsRoot);
+  const key = relativeTo(root, wsRoot);
+  const entry = (ws?.repos ?? []).find((r) => typeof r?.path === 'string' && relativeTo(resolve(wsRoot, r.path), wsRoot) === key);
+  return { wsRoot, ws, key, path: entry ? relPath(wsRoot, resolve(wsRoot, entry.path)) : relPath(wsRoot, root) };
+}
+
+/** The repo as the backlog names it: its path in the enclosing workspace (as recorded), else its folder name. */
+function repoLabel(root) {
+  const place = placeOf(root);
+  return (place?.key && place.path) || basename(root);
+}
+
+const tagOf = (path) => path.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+/**
+ * A unique tag for each of `paths` (workspace-relative, in stable order). The folder name gives the tag;
+ * repos whose folder tags are equal (or empty) take the tag of their whole path; tags that are still equal get
+ * `-1`, `-2`, ... in path order, skipping any tag another repo already has.
+ */
+function uniqueTags(paths) {
+  const count = (list) => list.reduce((m, t) => m.set(t, (m.get(t) ?? 0) + 1), new Map());
+  const folder = paths.map((p) => tagOf(basename(p)));
+  const folderCount = count(folder);
+  const tags = paths.map((p, i) => (folder[i] && folderCount.get(folder[i]) === 1 ? folder[i] : tagOf(p) || 'REPO'));
+  const tagCount = count(tags);
+  const taken = new Set(tags);
+  const next = new Map();
+  return tags.map((t) => {
+    if (tagCount.get(t) === 1) return t;
+    let n = next.get(t) ?? 1;
+    let tag;
+    do tag = `${t}-${n++}`; while (taken.has(tag));
+    next.set(t, n);
+    taken.add(tag);
+    return tag;
+  });
+}
+
+/**
+ * The id tag of a repo in a multi-repo workspace, or null with at most one code repo (ids stay STD-NN).
+ * Recorded data wins: the code repos are the isCode entries of workspace.json. Paths are compared in normalized
+ * form and the tags of all code repos are made unique together (`uniqueTags`); only [A-Z0-9-] remain.
+ */
+export function gapTag(root) {
+  const place = placeOf(root);
+  if (!place?.ws) return null;
+  const { wsRoot, ws, key } = place;
+  const repos = new Map();
+  for (const r of Array.isArray(ws.repos) ? ws.repos : []) {
+    if (r?.isCode !== true || typeof r.path !== 'string') continue;
+    const k = relativeTo(resolve(wsRoot, r.path), wsRoot);
+    if (k && !repos.has(k)) repos.set(k, relPath(wsRoot, resolve(wsRoot, r.path)));
+  }
+  if (repos.size <= 1) return null;
+  if (!key) return tagOf(basename(root)) || null;
+  if (!repos.has(key)) repos.set(key, place.path);
+  const keys = [...repos.keys()].sort(); // stable path order on every platform
+  const tags = uniqueTags(keys.map((k) => repos.get(k)));
+  return tags[keys.indexOf(key)];
 }
 
 /**
@@ -565,8 +629,9 @@ function repoLabel(root) {
 export function gapList(plan) {
   const summaries = new Map(loadModel().items.map((i) => [i.id, i.summary]));
   const repo = repoLabel(plan.repo);
+  const tag = gapTag(plan.repo);
   const gaps = plan.items.filter((i) => i.state === 'missing').map((item, n) => ({
-    id: `${GAP_PREFIX}-${String(n + 1).padStart(2, '0')}`,
+    id: `${GAP_PREFIX}-${tag ? tag + '-' : ''}${String(n + 1).padStart(2, '0')}`,
     prio: item.class === 'mandatory' ? 'P0' : 'P1',
     task: `Add to \`${repo}\`: ${summaries.get(item.id) ?? item.id}${item.reason ? ` (${item.reason})` : ''}`,
     item: item.id,

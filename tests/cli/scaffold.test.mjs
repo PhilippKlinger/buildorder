@@ -346,3 +346,108 @@ test('a rerun keeps an edited web-quality rule', () => {
   assert.equal(again.created.includes(RULE), false);
   assert.equal(read(dir, RULE), 'my own rule\n');
 });
+
+// --- per-repo values (1.3.0, A2) ---
+import { multiRepoWorkspace } from '../helpers/workspace.mjs';
+
+// The folder tree without the inner .git folders of the repos; a root .git (an early git init of the docs repo) counts.
+const tree = (dir) => readdirSync(dir, { recursive: true }).filter((p) => !/[\\/]\.git([\\/]|$)/.test(p)).sort();
+
+test('scaffold records the visibility per repo with a default and overrides', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--visibility', 'private', '--visibility', 'shop/web=public');
+  const by = Object.fromEntries(wsOf(root).repos.map((r) => [r.path, r.visibility]));
+  assert.deepEqual(by, { 'shop/api': 'private', 'shop/web': 'public', notes: undefined }, 'a default skips the repo without code');
+  const only = multiRepoWorkspace();
+  scaffold(only.root, '--visibility', 'shop/web=public');
+  const o = Object.fromEntries(wsOf(only.root).repos.map((r) => [r.path, r.visibility]));
+  assert.deepEqual(o, { 'shop/api': undefined, 'shop/web': 'public', notes: undefined });
+});
+
+test('a single --visibility value applies to every code repo; a repo without code needs its own <path>=', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--visibility', 'public');
+  assert.deepEqual(wsOf(root).repos.map((r) => [r.path, r.visibility]), [['notes', undefined], ['shop/api', 'public'], ['shop/web', 'public']]);
+  const own = multiRepoWorkspace();
+  scaffold(own.root, '--visibility', 'public', '--visibility', 'notes=private');
+  assert.deepEqual(wsOf(own.root).repos.map((r) => r.visibility), ['private', 'public', 'public']);
+});
+
+test('scaffold records option modules per repo', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--with', 'versioning', '--with', 'shop/web=web-quality');
+  const by = Object.fromEntries(wsOf(root).repos.map((r) => [r.path, r.standards?.modules ?? []]));
+  assert.ok(by['shop/api'].includes('versioning') && !by['shop/api'].includes('web-quality'));
+  assert.ok(by['shop/web'].includes('versioning') && by['shop/web'].includes('web-quality'));
+  assert.deepEqual(by.notes, [], 'a default skips the repo without code');
+  const own = multiRepoWorkspace();
+  scaffold(own.root, '--with', 'versioning', '--with', 'notes=versioning');
+  const notes = wsOf(own.root).repos.find((r) => r.path === 'notes');
+  assert.deepEqual(notes.standards.modules, ['versioning']);
+});
+
+test('scaffold refuses an unknown repo path, a doubled path or an unknown value before writing anything', () => {
+  const { root } = multiRepoWorkspace();
+  const before = tree(root);
+  const cases = [
+    [['--visibility', 'nope/x=public'], /unknown repo 'nope\/x'/],
+    [['--visibility', 'shop/web=public', '--visibility', 'shop/web=private'], /'shop\/web' given twice/],
+    [['--visibility', 'shop/web=internal'], /--visibility must be one of/],
+    [['--with', 'nope/x=web-quality'], /unknown repo 'nope\/x'/],
+    [['--with', 'shop/web=nonsense'], /unknown option 'nonsense'/],
+  ];
+  for (const [args, re] of cases) {
+    const r = cli('scaffold', root, ...args);
+    assert.equal(r.status, 1, args.join(' '));
+    assert.match(r.stderr, re);
+    assert.deepEqual(tree(root), before);
+  }
+});
+
+test('the web-quality rule names every repo that chose the module and no other', () => {
+  const { root } = multiRepoWorkspace();
+  scaffold(root, '--with', 'shop/web=web-quality', '--with', 'shop/api=web-quality');
+  const rule = read(root, RULE);
+  assert.match(rule, /"shop\/web\/src\/\*\*\/\*\.\{ts,tsx,html,css,scss\}"/);
+  assert.match(rule, /"shop\/api\/index\.html"/);
+  assert.doesNotMatch(rule, /notes/);
+  assert.doesNotMatch(rule, /\{\{/);
+});
+
+// --- upper-case repo folders (1.3 review C1): values are keyed by the normalized path everywhere ---
+const UPPER = ['Shop/Api', 'Shop/Web'];
+
+test('scaffold --repo keeps per-repo values for folders with upper-case letters', () => {
+  const { root } = multiRepoWorkspace({ names: UPPER });
+  scaffold(root, '--repo', 'Shop/Api', '--repo', 'Shop/Web', '--visibility', 'private', '--visibility', 'Shop/Web=public',
+    '--with', 'versioning', '--with', 'Shop/Web=web-quality');
+  const by = Object.fromEntries(wsOf(root).repos.map((r) => [r.path, r]));
+  assert.deepEqual(Object.keys(by).sort(), UPPER);
+  assert.equal(by['Shop/Api'].visibility, 'private');
+  assert.equal(by['Shop/Web'].visibility, 'public');
+  assert.ok(by['Shop/Api'].standards.modules.includes('versioning'));
+  assert.ok(by['Shop/Web'].standards.modules.includes('web-quality'));
+  assert.match(read(root, RULE), /"Shop\/Web\/src\//);
+  const ignore = read(root, '.gitignore').split(/\r?\n/);
+  assert.ok(ignore.includes('/Shop/Api/') && ignore.includes('/Shop/Web/'), 'the docs repo ignores the folders as they are on disk');
+});
+
+test('scaffold --repo typed in lower case finds an upper-case folder on Windows', { skip: process.platform !== 'win32' }, () => {
+  const { root } = multiRepoWorkspace({ names: UPPER });
+  scaffold(root, '--repo', 'shop/web', '--visibility', 'public', '--with', 'shop/web=versioning');
+  const [web] = wsOf(root).repos;
+  assert.equal(web.path, 'Shop/Web', 'the path as it is on disk');
+  assert.equal(web.visibility, 'public');
+  assert.ok(web.standards.modules.includes('versioning'));
+});
+
+test('scaffold refuses two visibility defaults before writing anything', () => {
+  const { root } = multiRepoWorkspace();
+  const before = tree(root);
+  const r = cli('scaffold', root, '--visibility', 'private', '--visibility', 'public');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--visibility default given twice/);
+  assert.deepEqual(tree(root), before);
+  // For --with plain ids are a list: several stay allowed.
+  assert.equal(cli('scaffold', root, '--with', 'versioning', '--with', 'web-quality').status, 0);
+});

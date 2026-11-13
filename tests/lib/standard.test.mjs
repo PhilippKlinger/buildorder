@@ -2,9 +2,10 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadModel, optionModules, standard } from '../../plugins/buildorder/lib/standard.mjs';
+import { gapList, loadModel, optionModules, standard } from '../../plugins/buildorder/lib/standard.mjs';
 import { cleanup, codeRepo, gitIn, gitInit, tempDir, tmp, write } from '../helpers/cli.mjs';
 import { FAKE_STACKS, jobIds } from '../helpers/standard.mjs';
+import { multiRepoWorkspace } from '../helpers/workspace.mjs';
 
 after(cleanup);
 
@@ -320,4 +321,59 @@ test('a missing file item names the files it looked for', () => {
   const dependabot = out.items.find((i) => i.id === 'dependabot');
   assert.equal(dependabot.state, 'missing');
   assert.equal(dependabot.reason, 'none of .github/dependabot.yml, .github/dependabot.yaml exists');
+});
+
+// --- gap ids per repo (1.3, A3) ---
+
+const gapIds = (path) => [...gapList(standard(path, {})).matchAll(/^\| (STD-[A-Z0-9-]*\d\d) \|/gm)].map((m) => m[1]);
+
+test('gap ids stay STD-NN with one code repo', () => {
+  const dir = codeRepo('gap-one');
+  const ids = gapIds(dir);
+  assert.ok(ids.length > 1);
+  assert.equal(ids[0], 'STD-01');
+  assert.equal(ids[1], 'STD-02');
+});
+
+test('gap ids carry the repo tag with two code repos', () => {
+  const { root } = multiRepoWorkspace({ registered: true });
+  assert.equal(gapIds(join(root, 'shop', 'api'))[0], 'STD-API-01');
+  assert.equal(gapIds(join(root, 'shop', 'web'))[0], 'STD-WEB-01');
+  assert.match(gapList(standard(join(root, 'shop', 'api'), {})), /\| STD-API-01 \| P\d \| .* \| STD \|/);
+});
+
+test('repos with the same folder name get distinct tags from their paths', () => {
+  const { root } = multiRepoWorkspace({ registered: true, sameName: true });
+  assert.equal(gapIds(join(root, 'a', 'app'))[0], 'STD-A-APP-01');
+  assert.equal(gapIds(join(root, 'b', 'app'))[0], 'STD-B-APP-01');
+});
+
+test('a tag keeps only letters, digits and hyphens', () => {
+  const root = tempDir('tag');
+  codeRepo(null, null, { dir: join(root, 'my_api.v2') });
+  codeRepo(null, null, { dir: join(root, 'web') });
+  write(root, { '.claude/workspace.json': JSON.stringify({ schemaVersion: 1, name: 'x', docs: {}, repos: [
+    { path: 'my_api.v2', isCode: true }, { path: 'web', isCode: true }] }) });
+  assert.equal(gapIds(join(root, 'my_api.v2'))[0], 'STD-MY-API-V2-01');
+});
+
+// Review 1.3 I3: tags are compared as tags, so case and normalization cannot make two repos share one.
+test('folders that differ only in their parent get path tags, also with upper-case letters', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['A/App', 'B/App'] });
+  assert.equal(gapIds(join(root, 'A', 'App'))[0], 'STD-A-APP-01');
+  assert.equal(gapIds(join(root, 'B', 'App'))[0], 'STD-B-APP-01');
+});
+
+test('names that normalize to the same tag get a numeric suffix in path order', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['my-api', 'my_api'] });
+  assert.equal(gapIds(join(root, 'my-api'))[0], 'STD-MY-API-1-01');
+  assert.equal(gapIds(join(root, 'my_api'))[0], 'STD-MY-API-2-01');
+});
+
+test('a suffix or path tag never takes the tag of another repo', () => {
+  const { root } = multiRepoWorkspace({ registered: true, names: ['a/app', 'b/app', 'a-app', 'my-api', 'my_api', 'my-api-1'] });
+  const first = (path) => gapIds(join(root, ...path.split('/')))[0].replace(/-\d\d$/, '');
+  const tags = ['a/app', 'b/app', 'a-app', 'my-api', 'my_api', 'my-api-1'].map(first);
+  assert.equal(new Set(tags).size, tags.length, tags.join(' '));
+  assert.ok(tags.every((t) => /^STD-[A-Z0-9]+(-[A-Z0-9]+)*$/.test(t)), tags.join(' '));
 });

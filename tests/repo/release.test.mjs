@@ -66,3 +66,14 @@ test('the release workflow attests the release archive with least privilege', ()
     assert.ok(!block.join('\n').includes('${{'), `run block at line ${i + 1} must not interpolate expressions`);
   }
 });
+
+test('the README quickstart describes 1.3: several repos, the question limits and skill removal (review 1.3 M9)', () => {
+  const quick = read('README.md').replace(/\s+/g, ' ');
+  assert.doesNotMatch(quick, /a folder that holds one existing git repo\./);
+  assert.match(quick, /or in a folder with one or more existing git repos/);
+  assert.match(quick, /at most 8 shared questions, plus at most 3 per code repo/);
+  assert.doesNotMatch(quick, /It never changes them\./);
+  assert.match(quick, /removes a personal or workspace skill only after your explicit consent/);
+  assert.match(quick, /a value without `=` is the default for every code repo/);
+  assert.match(quick, /settings only \(for a repo that is already on GitHub\)/);
+});
