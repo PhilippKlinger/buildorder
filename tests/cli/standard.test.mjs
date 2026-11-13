@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, cli, codeRepo, gitIn, gitInit, tmp, write } from '../helpers/cli.mjs';
+import { multiRepoWorkspace } from '../helpers/workspace.mjs';
 
 after(cleanup);
 
@@ -286,4 +287,21 @@ test('plan refuses --with web-quality for a go repo', () => {
   const r = cli('plan', dir, '--with', 'web-quality');
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^buildorder: 'web-quality' applies to react, angular only\n$/);
+});
+
+// --- 1.3.1 (practice test S2-1): the recorded visibility is the default ---
+
+test('plan uses the visibility recorded in workspace.json when none is given', () => {
+  const { root } = multiRepoWorkspace({ registered: true, visibility: { 'shop/api': 'private', 'shop/web': 'public' } });
+  assert.equal(cli('plan', join(root, 'shop', 'api')).json.visibility, 'private');
+  assert.equal(cli('standard', join(root, 'shop', 'api')).json.visibility, 'private');
+  assert.equal(cli('plan', join(root, 'shop', 'web')).json.visibility, 'public');
+  // No record for the repo: the default stays public.
+  const bare = multiRepoWorkspace({ registered: true });
+  assert.equal(cli('plan', join(bare.root, 'shop', 'api')).json.visibility, 'public');
+});
+
+test('an explicit --visibility overrides the recorded one', () => {
+  const { root } = multiRepoWorkspace({ registered: true, visibility: { 'shop/api': 'private' } });
+  assert.equal(cli('plan', join(root, 'shop', 'api'), '--visibility', 'public').json.visibility, 'public');
 });
