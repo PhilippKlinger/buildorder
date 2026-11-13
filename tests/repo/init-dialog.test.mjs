@@ -121,7 +121,7 @@ test('init validates a new name with github-plan before gh repo view', () => {
 });
 
 test('init recommends <parent>-<folder> on a duplicate name', () => {
-  assert.match(github, /duplicate name[\s\S]*recommend `<parent>-<folder>`[^.]*never the duplicated folder name/i);
+  assert.match(github, /duplicate name[\s\S]*recommended `<parent>-<folder>`[^.]*never the duplicated folder name/i);
 });
 
 test('init names two options for the new-project question', () => {
@@ -142,5 +142,5 @@ test('init settles names before the checklist and passes the final names to ever
   assert.match(github, /github-checklist \. --owner <login> \[--name <path>=<name>\]\.\.\. --done <path>=<step>/);
   // Nothing reruns the checklist after a rename: it is written once, after the names are settled.
   assert.doesNotMatch(github, /run `github-checklist` again|`github-checklist` and `github-plan` again|check, `github-checklist`/);
-  assert.match(github, /with a new name[^.]*repeat the name check and `github-plan`[^.]*ask the consent again/i);
+  assert.match(github, /with a new name[^.]*first run `github-plan`[^.]*only then `gh repo view`[^.]*ask the consent again/i);
 });
