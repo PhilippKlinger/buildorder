@@ -9,7 +9,7 @@ import { cleanup, tempDir } from '../helpers/cli.mjs';
 import { runHook } from '../helpers/hooks.mjs';
 import { makeWorkspace } from '../helpers/workspace.mjs';
 
-const RUNS = 9;
+const RUNS = 15;
 // AK-5: limits are margins over the baseline measured in the same run (relative-limit decision), not absolute times.
 const OUTSIDE_MARGIN_MS = 25;
 const INSIDE_MARGIN_MS = 150;
@@ -46,7 +46,8 @@ function nodeStartMs() {
 }
 
 // Baseline and hook alternate, so load drift on shared runners (macOS) hits both alike;
-// one unmeasured pair warms the file cache first.
+// one unmeasured pair warms the file cache first. The overhead is the median of the per-pair
+// differences, so a load spike that hits one pair does not shift the whole comparison.
 function measure(entry, cwd, file) {
   const input = inputFor(entry, cwd, file);
   nodeStartMs();
@@ -57,7 +58,7 @@ function measure(entry, cwd, file) {
     base.push(nodeStartMs());
     hook.push(runHook(entry, input, { cwd }).ms);
   }
-  return { base: median(base), hook: median(hook) };
+  return { base: median(base), hook: median(hook), overhead: median(hook.map((ms, i) => ms - base[i])) };
 }
 
 const skip = process.env.BUILDORDER_TIMING === '1' ? false : 'timing test runs only with BUILDORDER_TIMING=1 (needs an unloaded machine)';
@@ -69,10 +70,11 @@ test('hook wall time stays within the AK-5 limits per entry', { skip }, (t) => {
 
   const failures = [];
   const check = (entry, where, cwd, margin) => {
-    const { base, hook } = measure(entry, cwd, join(cwd, 'src', 'a.js'));
-    const limit = base + margin;
-    t.diagnostic(`${entry} ${where}: ${fmt(hook)} ms (baseline node -e "" ${fmt(base)} ms, limit ${fmt(limit)})`);
-    if (!(hook < limit)) failures.push(`${entry} ${where} median ${fmt(hook)} ms >= ${fmt(limit)} ms`);
+    const { base, hook, overhead } = measure(entry, cwd, join(cwd, 'src', 'a.js'));
+    t.diagnostic(
+      `${entry} ${where}: ${fmt(hook)} ms (baseline node -e "" ${fmt(base)} ms, overhead ${fmt(overhead)} ms, margin ${margin} ms)`,
+    );
+    if (!(overhead < margin)) failures.push(`${entry} ${where} median overhead ${fmt(overhead)} ms >= ${margin} ms`);
   };
   for (const entry of ['boundary', 'secret', 'prompt', 'compact', 'stop']) {
     check(entry, 'outside', outside, OUTSIDE_MARGIN_MS);
