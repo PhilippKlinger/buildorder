@@ -109,6 +109,23 @@ test('angular starter: every dependency is pinned exactly and the lockfile exist
   assert.ok(direct.vitest && direct.jsdom && direct['@vitest/coverage-v8']);
 });
 
+test('the angular starter overrides minimatch with the patched 11.0.1 (GHSA-g3hv-75wg-m249)', () => {
+  const pkg = JSON.parse(starterFile('package.json'));
+  assert.deepEqual(pkg.overrides, { minimatch: '11.0.1' });
+  const lock = JSON.parse(starterFile('package-lock.json'));
+  assert.equal(lock.packages['node_modules/minimatch'].version, '11.0.1');
+  // No copy in the vulnerable range >= 7.0.0, < 11.0.1 stays nested anywhere in the lock.
+  for (const [path, entry] of Object.entries(lock.packages)) {
+    if (!path.endsWith('node_modules/minimatch')) continue;
+    const [major, minor, patch] = entry.version.split('.').map(Number);
+    const vulnerable = major >= 7 && (major < 11 || (major === 11 && minor === 0 && patch < 1));
+    assert.ok(!vulnerable, `${path}: ${entry.version}`);
+  }
+  // The transitive package of the override stays within the 14-day cooldown (1.0.3, 2026-10-28; 1.1.0 was too new).
+  const glob = Object.entries(lock.packages).filter(([path]) => path.endsWith('node_modules/@isaacs/nonrecursive-glob-match'));
+  assert.deepEqual(glob.map(([, entry]) => entry.version), ['1.0.3']);
+});
+
 test('angular starter: .gitattributes forces LF', () => {
   assert.match(starterFile('.gitattributes'), /^\* text=auto eol=lf$/m);
   assert.match(starterFile('.prettierrc'), /"endOfLine": "lf"/);
