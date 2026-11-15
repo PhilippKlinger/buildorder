@@ -237,9 +237,7 @@ Known limits:
 
 ## Related repositories
 
-| Repo | Role |
-|---|---|
-| [philippklinger.com](https://github.com/PhilippKlinger/philippklinger.com) | Portfolio site with the [Buildorder project page](https://philipp-klinger.com/projekte/buildorder/) |
+None; Buildorder stands alone.
 
 ## License
 
