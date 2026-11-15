@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/). Versions below 1.0.0 are pre-releases;
 interfaces may change.
 
+## [Unreleased]
+
+### Security
+
+- Angular starter: `minimatch` override 11.0.1 (GHSA-g3hv-75wg-m249), as in the React starter.
+
 ## [1.3.1] - 2026-11-13
 
 ### Fixed
