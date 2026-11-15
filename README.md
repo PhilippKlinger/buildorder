@@ -6,6 +6,22 @@ A Claude Code plugin that sets up a workspace and engineering standards for your
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/PhilippKlinger/buildorder/badge)](https://scorecard.dev/viewer/?uri=github.com/PhilippKlinger/buildorder)
 [![License](https://img.shields.io/github/license/PhilippKlinger/buildorder)](LICENSE)
 
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quickstart](#quickstart)
+- [How it differs from `/init`](#how-it-differs-from-init)
+- [What you get](#what-you-get)
+- [What CI checks](#what-ci-checks)
+- [Security model](#security-model)
+- [Limits and safety](#limits-and-safety)
+- [Related repositories](#related-repositories)
+- [License](#license)
+
+## Architecture
+
 Your agent writes the code. Buildorder builds the engineering around it.
 
 ```mermaid
@@ -26,18 +42,6 @@ flowchart LR
   repo -->|"CI on push and pull request"| gh
 ```
 
-## Contents
-
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Quickstart](#quickstart)
-- [How it differs from `/init`](#how-it-differs-from-init)
-- [What you get](#what-you-get)
-- [What CI checks](#what-ci-checks)
-- [Security model](#security-model)
-- [Limits and safety](#limits-and-safety)
-- [License](#license)
-
 ## Requirements
 
 - Claude Code
@@ -48,11 +52,11 @@ flowchart LR
 ## Installation
 
 ```text
-/plugin marketplace add PhilippKlinger/buildorder#v1.0.0
+/plugin marketplace add PhilippKlinger/buildorder#v1.3.1
 /plugin install buildorder@buildorder
 ```
 
-`#v1.0.0` pins the marketplace to that release tag; without it, the marketplace follows `main`.
+`#v1.3.1` pins the marketplace to that release tag; without it, the marketplace follows `main`.
 Install the plugin at user scope (the default of `claude plugin install`). To turn it off for one project,
 disable it there with `/plugin` (project scope).
 
@@ -230,6 +234,10 @@ Known limits:
 - A repo with several stacks gets the CI block of one stack; the others are named in the plan as not covered, and you
   add their checks to `ci.yml` by hand.
 - Behind a reverse proxy that terminates TLS, set `DJANGO_BEHIND_PROXY=true` for the Django starter.
+
+## Related repositories
+
+None; Buildorder stands alone.
 
 ## License
 
