@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest pre-release is supported. Fixes land there first.
+Only the latest release is supported. Fixes ship as a new patch release.
 
 ## Reporting a vulnerability
 
